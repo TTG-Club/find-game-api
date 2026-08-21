@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: find-game-api
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/find_game}
+    username: ${DB_USERNAME:find_game}
+    password: ${DB_PASSWORD:find_game}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50
+        jdbc:
+          time_zone: UTC
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+auth-service:
+  jwt-secret: ${AUTH_SERVICE_JWT_SECRET}
+
+internal:
+  service-secret: ${INTERNAL_SERVICE_SECRET:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logbook:
+  format:
+    style: json
+  obfuscate:
+    headers:
+      - Authorization
+      - X-Service-Token
+      - Cookie
+      - Set-Cookie
+    parameters:
+      - inviteCode
+    json-body-fields:
+      - inviteCode
+      - characterSheetUrl
+      - birthYear
+      - gender
+      - about
+      - reason
+  write:
+    max-body-size: 8192
+  exclude:
+    - /actuator/health
+    - /v3/api-docs/**
+    - /swagger-ui/**
+
+logging:
+  level:
+    org.zalando.logbook: TRACE

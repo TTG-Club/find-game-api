@@ -1,0 +1,189 @@
+package club.ttg.findgame.game;
+
+import club.ttg.findgame.common.ApiExceptionHandler;
+import club.ttg.findgame.config.SecurityConfiguration;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Page;
+import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(GameController.class)
+@Import({SecurityConfiguration.class, ApiExceptionHandler.class})
+@TestPropertySource(properties = "auth-service.jwt-secret=" + GameControllerSecurityTest.SECRET)
+class GameControllerSecurityTest {
+
+    static final String SECRET = "0123456789abcdef0123456789abcdef";
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private GameService service;
+
+    @Test
+    void guestCanSearchPublicGames() throws Exception {
+        given(service.findPublic(isNull(), isNull(), anyInt(), anyInt())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void guestCanReadPublicGameById() throws Exception {
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/games/" + gameId))
+                .andExpect(status().isOk());
+
+        verify(service).get(gameId, null);
+    }
+
+    @Test
+    void guestCannotCreateGame() throws Exception {
+        mockMvc.perform(post("/api/v1/games")
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void authenticatedMasterIdComesFromJwtSubject() throws Exception {
+        UUID masterId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/v1/games")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isCreated());
+
+        verify(service).create(eq(masterId), any());
+    }
+
+    @Test
+    void malformedTokenIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/games")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer garbage")
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void guestCannotDeleteGame() throws Exception {
+        mockMvc.perform(delete("/api/v1/games/{gameId}", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void regularUserCannotDeleteGame() throws Exception {
+        mockMvc.perform(delete("/api/v1/games/{gameId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void administratorCanDeleteGame() throws Exception {
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/games/{gameId}", gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "ADMIN"))
+                        .contentType("application/json")
+                        .content("""
+                                {"reason":"Нарушение правил"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        verify(service).delete(gameId, "Нарушение правил");
+    }
+
+    @Test
+    void moderatorCanDeleteGame() throws Exception {
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/games/{gameId}", gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "MODERATOR")))
+                .andExpect(status().isNoContent());
+
+        verify(service).delete(gameId, null);
+    }
+
+    @Test
+    void deletionReasonCannotBeBlank() throws Exception {
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/games/{gameId}", gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "ADMIN"))
+                        .contentType("application/json")
+                        .content("""
+                                {"reason":"   "}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(service, never()).delete(eq(gameId), any());
+    }
+
+    private String validRequest() {
+        return """
+                {
+                  "title": "Проклятие Страда",
+                  "system": "DND_2024",
+                  "description": "Готическая кампания",
+                  "requirements": "Стабильное участие",
+                  "type": "ONLINE",
+                  "playersToStart": 3,
+                  "maxPlayers": 5,
+                  "startingLevel": 1,
+                  "durationType": "CAMPAIGN",
+                  "costType": "FREE",
+                  "visibility": "PUBLIC"
+                }
+                """;
+    }
+
+    private String issueToken(UUID userId) {
+        return issueToken(userId, "USER");
+    }
+
+    private String issueToken(UUID userId, String role) {
+        SecretKey key = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
+        return Jwts.builder()
+                .subject(userId.toString())
+                .claim("username", "game-master")
+                .claim("roles", List.of(role))
+                .issuedAt(Date.from(Instant.now().minus(1, ChronoUnit.MINUTES)))
+                .expiration(Date.from(Instant.now().plus(1, ChronoUnit.HOURS)))
+                .signWith(key)
+                .compact();
+    }
+}
