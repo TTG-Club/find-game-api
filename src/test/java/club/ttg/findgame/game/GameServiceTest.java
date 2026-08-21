@@ -2,12 +2,18 @@ package club.ttg.findgame.game;
 
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
+import club.ttg.findgame.game.api.GameSearchFilter;
+import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.Set;
 import java.util.Optional;
@@ -26,16 +32,22 @@ class GameServiceTest {
     @Mock
     private GameRepository repository;
 
+    @Mock
+    private SubscriptionStatusClient subscriptionStatusClient;
+
+    @Mock
+    private GameCreationLockService creationLockService;
+
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
 
     @Test
     void createsPrivateGameAndReturnsInviteCode() {
-        GameService service = new GameService(repository, mapper);
+        GameService service = service();
         UUID masterId = UUID.randomUUID();
         CreateGameRequest request = request(3, 5, GameVisibility.PRIVATE);
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        GameResponse response = service.create(masterId, request);
+        GameResponse response = service.create(masterId, "game-master", request);
 
         ArgumentCaptor<Game> captor = ArgumentCaptor.forClass(Game.class);
         verify(repository).save(captor.capture());
@@ -56,16 +68,17 @@ class GameServiceTest {
 
     @Test
     void rejectsPlayersToStartGreaterThanMaximum() {
-        GameService service = new GameService(repository, mapper);
+        GameService service = service();
 
-        assertThatThrownBy(() -> service.create(UUID.randomUUID(), request(6, 5, GameVisibility.PUBLIC)))
+        assertThatThrownBy(() -> service.create(
+                UUID.randomUUID(), "game-master", request(6, 5, GameVisibility.PUBLIC)))
                 .isInstanceOf(InvalidPlayerCountException.class);
         verify(repository, never()).save(any());
     }
 
     @Test
     void rejectsCityForOnlineGame() {
-        GameService service = new GameService(repository, mapper);
+        GameService service = service();
         CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
         CreateGameRequest request = new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(), source.genre(),
@@ -74,7 +87,7 @@ class GameServiceTest {
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
                 source.visibility());
 
-        assertThatThrownBy(() -> service.create(UUID.randomUUID(), request))
+        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
                 .isInstanceOf(InvalidGameDetailsException.class);
         verify(repository, never()).save(any());
     }
@@ -85,7 +98,7 @@ class GameServiceTest {
         Game game = new Game();
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
 
-        new GameService(repository, mapper).delete(gameId, "  Нарушение правил  ");
+        service().delete(gameId, "  Нарушение правил  ");
 
         verify(repository).save(game);
         verify(repository, never()).delete(any(Game.class));
@@ -98,7 +111,7 @@ class GameServiceTest {
         UUID gameId = UUID.randomUUID();
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> new GameService(repository, mapper).delete(gameId, null))
+        assertThatThrownBy(() -> service().delete(gameId, null))
                 .isInstanceOf(GameNotFoundException.class);
         verify(repository, never()).save(any(Game.class));
     }
@@ -108,7 +121,7 @@ class GameServiceTest {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), 18, null);
 
-        GameResponse response = new GameService(repository, mapper).create(UUID.randomUUID(), request);
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", request);
 
         assertThat(response.minAge()).isEqualTo(18);
         assertThat(response.maxAge()).isNull();
@@ -119,7 +132,7 @@ class GameServiceTest {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), null, 30);
 
-        GameResponse response = new GameService(repository, mapper).create(UUID.randomUUID(), request);
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", request);
 
         assertThat(response.minAge()).isNull();
         assertThat(response.maxAge()).isEqualTo(30);
@@ -129,9 +142,98 @@ class GameServiceTest {
     void rejectsInvertedAgeRange() {
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), 30, 18);
 
-        assertThatThrownBy(() -> new GameService(repository, mapper).create(UUID.randomUUID(), request))
+        assertThatThrownBy(() -> service().create(UUID.randomUUID(), "game-master", request))
                 .isInstanceOf(InvalidGameDetailsException.class);
         verify(repository, never()).save(any());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void sortsSearchResultsFromNewestToOldest() {
+        when(repository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
+
+        service().findPublic(GameSearchFilter.empty(), 2, 15);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(15);
+        assertThat(pageable.getValue().getSort().getOrderFor("createdAt").getDirection())
+                .isEqualTo(Sort.Direction.DESC);
+        assertThat(pageable.getValue().getSort().getOrderFor("id").getDirection())
+                .isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    void nonSubscriberCannotCreateSecondUnfinishedGame() {
+        UUID masterId = UUID.randomUUID();
+        when(repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service().create(
+                masterId, "game-master", request(3, 5, GameVisibility.PUBLIC)))
+                .isInstanceOf(ActiveGameLimitExceededException.class);
+
+        verify(creationLockService).lock(masterId);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void activeSubscriberCanCreateUnlimitedGames() {
+        UUID masterId = UUID.randomUUID();
+        when(subscriptionStatusClient.status("subscriber")).thenReturn(Optional.of(
+                new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "BUY")));
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(masterId, "subscriber", request(3, 5, GameVisibility.PUBLIC));
+
+        verify(creationLockService, never()).lock(any());
+        verify(repository, never()).existsByMasterIdAndStatusNotAndDeletedAtIsNull(any(), any());
+        verify(repository).save(any(Game.class));
+    }
+
+    @Test
+    void subscriptionServiceFailureUsesFreeLimit() {
+        UUID masterId = UUID.randomUUID();
+        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
+        when(repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service().create(
+                masterId, "game-master", request(3, 5, GameVisibility.PUBLIC)))
+                .isInstanceOf(ActiveGameLimitExceededException.class);
+    }
+
+    @Test
+    void ownerCanCloseGame() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = new Game();
+        game.setMasterId(masterId);
+        game.setStatus(GameStatus.OPEN);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        service().close(masterId, gameId);
+
+        assertThat(game.getStatus()).isEqualTo(GameStatus.CLOSED);
+        verify(repository).save(game);
+    }
+
+    @Test
+    void anotherUserCannotCloseGame() {
+        UUID gameId = UUID.randomUUID();
+        Game game = new Game();
+        game.setMasterId(UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().close(UUID.randomUUID(), gameId))
+                .isInstanceOf(GameAccessDeniedException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    private GameService service() {
+        return new GameService(repository, mapper, subscriptionStatusClient, creationLockService);
     }
 
     private CreateGameRequest withAges(CreateGameRequest source, Integer minAge, Integer maxAge) {

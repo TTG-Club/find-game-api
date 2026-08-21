@@ -1,6 +1,8 @@
 package club.ttg.findgame.common;
 
 import club.ttg.findgame.game.GameNotFoundException;
+import club.ttg.findgame.game.GameAccessDeniedException;
+import club.ttg.findgame.game.ActiveGameLimitExceededException;
 import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
@@ -37,6 +39,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidGameDetailsException.class)
     ProblemDetail handleInvalidDetails(InvalidGameDetailsException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректные параметры игры", exception.getMessage());
+    }
+
+    @ExceptionHandler(ActiveGameLimitExceededException.class)
+    ProblemDetail handleActiveGameLimit(ActiveGameLimitExceededException exception) {
+        return problem(HttpStatus.CONFLICT, "Достигнут лимит активных игр", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameAccessDeniedException.class)
+    ProblemDetail handleGameAccessDenied(GameAccessDeniedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Доступ запрещён", exception.getMessage());
     }
 
     @ExceptionHandler(GameSessionAccessDeniedException.class)

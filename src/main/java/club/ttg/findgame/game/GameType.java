@@ -7,7 +7,7 @@ import lombok.Getter;
 @Getter
 public enum GameType {
     ONLINE("Онлайн"),
-    TEXT("Тестовая"),
+    TEXT("Текстовая"),
     OFFLINE("Офлайн");
 
     final String text;

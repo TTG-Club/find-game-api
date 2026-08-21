@@ -13,6 +13,8 @@ import java.util.UUID;
 
 public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificationExecutor<Game> {
 
+    boolean existsByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
+
     Optional<Game> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, GameVisibility visibility);
 
     Optional<Game> findByIdAndInviteCodeAndDeletedAtIsNull(UUID id, UUID inviteCode);

@@ -2,10 +2,11 @@ package club.ttg.findgame.game;
 
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
+import club.ttg.findgame.game.api.GameSearchFilter;
+import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,18 +18,28 @@ public class GameService {
 
     private final GameRepository repository;
     private final GameMapper mapper;
+    private final SubscriptionStatusClient subscriptionStatusClient;
+    private final GameCreationLockService creationLockService;
 
-    public GameService(GameRepository repository, GameMapper mapper) {
+    public GameService(
+            GameRepository repository,
+            GameMapper mapper,
+            SubscriptionStatusClient subscriptionStatusClient,
+            GameCreationLockService creationLockService
+    ) {
         this.repository = repository;
         this.mapper = mapper;
+        this.subscriptionStatusClient = subscriptionStatusClient;
+        this.creationLockService = creationLockService;
     }
 
     @Transactional
-    public GameResponse create(UUID masterId, CreateGameRequest request) {
+    public GameResponse create(UUID masterId, String username, CreateGameRequest request) {
         if (request.playersToStart() > request.maxPlayers()) {
             throw new InvalidPlayerCountException();
         }
         validateDetails(request);
+        enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
         game.setMasterId(masterId);
@@ -39,23 +50,23 @@ public class GameService {
         return mapper.toResponse(repository.save(game));
     }
 
-    @Transactional(readOnly = true)
-    public Page<GameResponse> findPublic(GameSystem system, GameType type, int page, int size) {
-        Specification<Game> filter = (root, query, cb) -> cb.and(
-                cb.equal(root.get("visibility"), GameVisibility.PUBLIC),
-                cb.isNull(root.get("deletedAt"))
-        );
-        if (system != null) {
-            filter = filter.and((root, query, cb) -> cb.equal(root.get("system"), system));
+    @Transactional
+    public void close(UUID masterId, UUID gameId) {
+        Game game = repository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameAccessDeniedException();
         }
-        if (type != null) {
-            filter = filter.and((root, query, cb) -> cb.equal(root.get("type"), type));
-        }
+        game.setStatus(GameStatus.CLOSED);
+        repository.save(game);
+    }
 
+    @Transactional(readOnly = true)
+    public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
         Sort sort = Sort.by(Sort.Direction.DESC, "createdAt")
                 .and(Sort.by(Sort.Direction.DESC, "id"));
         PageRequest pageable = PageRequest.of(page, size, sort);
-        return repository.findAll(filter, pageable).map(this::toPublicResponse);
+        return repository.findAll(GameSpecifications.publicGames(filter), pageable).map(this::toPublicResponse);
     }
 
     @Transactional(readOnly = true)
@@ -99,6 +110,20 @@ public class GameService {
         if (request.minAge() != null && request.maxAge() != null
                 && request.minAge() > request.maxAge()) {
             throw new InvalidGameDetailsException("Минимальный возраст не может превышать максимальный");
+        }
+    }
+
+    private void enforceActiveGameLimit(UUID masterId, String username) {
+        boolean subscriptionActive = subscriptionStatusClient.status(username)
+                .map(SubscriptionStatusClient.SubscriptionStatus::active)
+                .orElse(false);
+        if (subscriptionActive) {
+            return;
+        }
+
+        creationLockService.lock(masterId);
+        if (repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED)) {
+            throw new ActiveGameLimitExceededException();
         }
     }
 

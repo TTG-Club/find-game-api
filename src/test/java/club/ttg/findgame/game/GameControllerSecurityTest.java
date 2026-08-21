@@ -2,9 +2,11 @@ package club.ttg.findgame.game;
 
 import club.ttg.findgame.common.ApiExceptionHandler;
 import club.ttg.findgame.config.SecurityConfiguration;
+import club.ttg.findgame.game.api.GameSearchFilter;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -22,15 +24,17 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,10 +53,42 @@ class GameControllerSecurityTest {
 
     @Test
     void guestCanSearchPublicGames() throws Exception {
-        given(service.findPublic(isNull(), isNull(), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt())).willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void combinesIncludedAndExcludedSearchParameters() throws Exception {
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games")
+                        .param("system", "DND_2024,DND_2014")
+                        .param("excludeType", "TEXT")
+                        .param("costType", "FREE")
+                        .param("minAge", "18")
+                        .param("maxAge", "30"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<GameSearchFilter> captor = ArgumentCaptor.forClass(GameSearchFilter.class);
+        verify(service).findPublic(captor.capture(), eq(0), eq(20));
+        GameSearchFilter filter = captor.getValue();
+        assertThat(filter.systems()).containsExactlyInAnyOrder(GameSystem.DND_2024, GameSystem.DND_2014);
+        assertThat(filter.excludedTypes()).containsExactly(GameType.TEXT);
+        assertThat(filter.costTypes()).containsExactly(GameCostType.FREE);
+        assertThat(filter.minAge()).isEqualTo(18);
+        assertThat(filter.maxAge()).isEqualTo(30);
+    }
+
+    @Test
+    void rejectsInvertedAgeRange() throws Exception {
+        mockMvc.perform(get("/api/v1/games")
+                        .param("minAge", "30")
+                        .param("maxAge", "18"))
+                .andExpect(status().isBadRequest());
+
+        verify(service, never()).findPublic(any(), anyInt(), anyInt());
     }
 
     @Test
@@ -83,7 +119,19 @@ class GameControllerSecurityTest {
                         .content(validRequest()))
                 .andExpect(status().isCreated());
 
-        verify(service).create(eq(masterId), any());
+        verify(service).create(eq(masterId), eq("game-master"), any());
+    }
+
+    @Test
+    void activeGameLimitReturnsConflict() throws Exception {
+        given(service.create(any(UUID.class), anyString(), any()))
+                .willThrow(new ActiveGameLimitExceededException());
+
+        mockMvc.perform(post("/api/v1/games")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isConflict());
     }
 
     @Test
@@ -92,6 +140,24 @@ class GameControllerSecurityTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer garbage")
                         .contentType("application/json")
                         .content(validRequest()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ownerCanCloseGame() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(patch("/api/v1/games/{gameId}/close", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId)))
+                .andExpect(status().isNoContent());
+
+        verify(service).close(masterId, gameId);
+    }
+
+    @Test
+    void guestCannotCloseGame() throws Exception {
+        mockMvc.perform(patch("/api/v1/games/{gameId}/close", UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
     }
 
