@@ -1,5 +1,7 @@
 package club.ttg.findgame.common;
 
+import club.ttg.findgame.chat.ChatAccessDeniedException;
+import club.ttg.findgame.chat.InvalidChatEventException;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameAccessDeniedException;
 import club.ttg.findgame.game.ActiveGameLimitExceededException;
@@ -84,6 +86,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidUserProfileException.class)
     ProblemDetail handleInvalidUserProfile(InvalidUserProfileException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректный профиль", exception.getMessage());
+    }
+
+    @ExceptionHandler(ChatAccessDeniedException.class)
+    ProblemDetail handleChatAccessDenied(ChatAccessDeniedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Доступ к чату запрещён", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidChatEventException.class)
+    ProblemDetail handleInvalidChatEvent(InvalidChatEventException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Некорректное событие чата", exception.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -43,3 +43,5 @@ databaseChangeLog:
       file: db/changelog/changes/021-add-text-game-type.sql
   - include:
       file: db/changelog/changes/022-create-game-creation-locks.sql
+  - include:
+      file: db/changelog/changes/023-create-chat-events.sql
