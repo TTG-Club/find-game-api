@@ -12,9 +12,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 import java.time.Instant;
+import java.time.Duration;
 
 @Service
 public class GameService {
+
+    private static final Duration FREE_RAISE_INTERVAL = Duration.ofDays(1);
+    private static final Duration SUBSCRIBER_RAISE_INTERVAL = Duration.ofHours(1);
 
     private final GameRepository repository;
     private final GameMapper mapper;
@@ -61,12 +65,47 @@ public class GameService {
         repository.save(game);
     }
 
+    @Transactional
+    public GameResponse raise(UUID masterId, String username, UUID gameId) {
+        boolean subscriptionActive = hasActiveSubscription(username);
+        Game game = repository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameAccessDeniedException();
+        }
+        if (game.getVisibility() != GameVisibility.PUBLIC || game.getStatus() != GameStatus.OPEN) {
+            throw new GameCannotBeRaisedException();
+        }
+
+        Duration interval = subscriptionActive ? SUBSCRIBER_RAISE_INTERVAL : FREE_RAISE_INTERVAL;
+        Instant now = Instant.now();
+        Instant availableAt = game.getListPositionAt().plus(interval);
+        if (availableAt.isAfter(now)) {
+            throw new GameRaiseCooldownException(availableAt);
+        }
+
+        game.setListPositionAt(now);
+        return toPublicResponse(repository.save(game));
+    }
+
     @Transactional(readOnly = true)
     public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
-        Sort sort = Sort.by(Sort.Direction.DESC, "createdAt")
-                .and(Sort.by(Sort.Direction.DESC, "id"));
-        PageRequest pageable = PageRequest.of(page, size, sort);
+        PageRequest pageable = PageRequest.of(page, size, listOrder());
         return repository.findAll(GameSpecifications.publicGames(filter), pageable).map(this::toPublicResponse);
+    }
+
+    /**
+     * Игры мастера-владельца: и публичные, и приватные, в любом статусе.
+     * Публичный поиск заменить эту выдачу не может — приватные игры в него не
+     * попадают, а закрытые мастеру всё равно нужно видеть.
+     *
+     * В отличие от публичных ответов {@code inviteCode} здесь не вырезается:
+     * без него владелец не соберёт ссылку-приглашение на свою приватную игру.
+     */
+    @Transactional(readOnly = true)
+    public Page<GameResponse> findOwn(UUID masterId, int page, int size) {
+        PageRequest pageable = PageRequest.of(page, size, listOrder());
+        return repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable).map(mapper::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -88,6 +127,15 @@ public class GameService {
         repository.save(game);
     }
 
+    /**
+     * Порядок списков игр: сначала поднятые и свежие, затем по {@code id} —
+     * второй ключ делает страницы стабильными при равных {@code listPositionAt}.
+     */
+    private static Sort listOrder() {
+        return Sort.by(Sort.Direction.DESC, "listPositionAt")
+                .and(Sort.by(Sort.Direction.DESC, "id"));
+    }
+
     private GameResponse toPublicResponse(Game game) {
         GameResponse response = mapper.toResponse(game);
         return new GameResponse(
@@ -97,7 +145,7 @@ public class GameService {
                 response.maxPlayers(), response.minAge(), response.maxAge(), response.startingLevel(),
                 response.crossplayAllowed(), response.status(), response.durationType(), response.costType(),
                 response.visibility(), null,
-                response.createdAt(), response.updatedAt());
+                response.createdAt(), response.listPositionAt(), response.updatedAt());
     }
 
     private void validateDetails(CreateGameRequest request) {
@@ -114,10 +162,7 @@ public class GameService {
     }
 
     private void enforceActiveGameLimit(UUID masterId, String username) {
-        boolean subscriptionActive = subscriptionStatusClient.status(username)
-                .map(SubscriptionStatusClient.SubscriptionStatus::active)
-                .orElse(false);
-        if (subscriptionActive) {
+        if (hasActiveSubscription(username)) {
             return;
         }
 
@@ -125,6 +170,12 @@ public class GameService {
         if (repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED)) {
             throw new ActiveGameLimitExceededException();
         }
+    }
+
+    private boolean hasActiveSubscription(String username) {
+        return subscriptionStatusClient.status(username)
+                .map(SubscriptionStatusClient.SubscriptionStatus::active)
+                .orElse(false);
     }
 
 }

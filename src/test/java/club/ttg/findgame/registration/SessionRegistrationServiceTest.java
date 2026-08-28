@@ -1,6 +1,7 @@
 package club.ttg.findgame.registration;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.game.GameCostType;
@@ -309,6 +310,61 @@ class SessionRegistrationServiceTest {
                 new UpdatePaymentStatusRequest(true)))
                 .isInstanceOf(InvalidSessionRegistrationException.class);
         verify(registrationRepository, never()).save(any());
+    }
+
+    @Test
+    void playerReadsOwnPendingRegistration() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        SessionRegistration own = registration(UUID.randomUUID(), sessionId);
+        own.setPlayerId(playerId);
+        Game game = publicGame(gameId, masterId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        GameSession session = scheduledSession();
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
+        when(registrationRepository.findBySessionIdAndPlayerId(sessionId, playerId))
+                .thenReturn(Optional.of(own));
+
+        SessionRegistrationResponse response = service().findOwn(playerId, gameId, sessionId, null);
+
+        assertThat(response.playerId()).isEqualTo(playerId);
+        assertThat(response.status()).isEqualTo(SessionRegistrationStatus.PENDING);
+    }
+
+    @Test
+    void missingOwnRegistrationIsNotFound() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = publicGame(gameId, masterId);
+        GameSession session = scheduledSession();
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
+        when(registrationRepository.findBySessionIdAndPlayerId(sessionId, playerId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().findOwn(playerId, gameId, sessionId, null))
+                .isInstanceOf(SessionRegistrationNotFoundException.class);
+    }
+
+    @Test
+    void privateGameHidesOwnRegistrationWithoutInviteCode() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = mock(Game.class);
+        when(game.getVisibility()).thenReturn(GameVisibility.PRIVATE);
+        when(game.getMasterId()).thenReturn(masterId);
+        lenient().when(game.getId()).thenReturn(gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().findOwn(playerId, gameId, sessionId, null))
+                .isInstanceOf(GameNotFoundException.class);
+        verify(registrationRepository, never()).findBySessionIdAndPlayerId(any(), any());
     }
 
     private SessionRegistrationService service() {

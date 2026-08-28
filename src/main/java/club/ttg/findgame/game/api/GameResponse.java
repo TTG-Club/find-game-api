@@ -37,6 +37,7 @@ public record GameResponse(
         GameVisibility visibility,
         @JsonInclude(JsonInclude.Include.NON_NULL) UUID inviteCode,
         Instant createdAt,
+        Instant listPositionAt,
         Instant updatedAt
 ) {
 }

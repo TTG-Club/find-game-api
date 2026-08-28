@@ -14,6 +14,7 @@ public interface GameMapper {
     @Mapping(target = "inviteCode", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "listPositionAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
     @Mapping(target = "deletionReason", ignore = true)

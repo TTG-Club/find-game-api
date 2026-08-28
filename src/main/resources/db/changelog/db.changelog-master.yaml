@@ -45,3 +45,5 @@ databaseChangeLog:
       file: db/changelog/changes/022-create-game-creation-locks.sql
   - include:
       file: db/changelog/changes/023-create-chat-events.sql
+  - include:
+      file: db/changelog/changes/024-add-game-list-position.sql

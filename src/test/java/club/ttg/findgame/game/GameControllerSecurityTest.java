@@ -102,6 +102,43 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void guestCannotReadOwnGames() throws Exception {
+        mockMvc.perform(get("/api/v1/games/my"))
+                .andExpect(status().isUnauthorized());
+
+        verify(service, never()).findOwn(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    void ownGamesUseJwtSubjectAsMaster() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        given(service.findOwn(any(UUID.class), anyInt(), anyInt())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games/my")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .param("page", "1")
+                        .param("size", "5"))
+                .andExpect(status().isOk());
+
+        verify(service).findOwn(masterId, 1, 5);
+    }
+
+    /**
+     * `/my` — литеральный путь: он не должен уходить в `/{gameId}` и падать на
+     * разборе UUID, поэтому проверяем именно вызов `findOwn`, а не `get`.
+     */
+    @Test
+    void ownGamesPathIsNotTreatedAsGameId() throws Exception {
+        given(service.findOwn(any(UUID.class), anyInt(), anyInt())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games/my")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))
+                .andExpect(status().isOk());
+
+        verify(service, never()).get(any(), any());
+    }
+
+    @Test
     void guestCannotCreateGame() throws Exception {
         mockMvc.perform(post("/api/v1/games")
                         .contentType("application/json")
@@ -159,6 +196,36 @@ class GameControllerSecurityTest {
     void guestCannotCloseGame() throws Exception {
         mockMvc.perform(patch("/api/v1/games/{gameId}/close", UUID.randomUUID()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ownerCanRaiseGame() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(patch("/api/v1/games/{gameId}/raise", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId)))
+                .andExpect(status().isOk());
+
+        verify(service).raise(masterId, "game-master", gameId);
+    }
+
+    @Test
+    void guestCannotRaiseGame() throws Exception {
+        mockMvc.perform(patch("/api/v1/games/{gameId}/raise", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void raiseCooldownReturnsTooManyRequests() throws Exception {
+        UUID gameId = UUID.randomUUID();
+        Instant availableAt = Instant.now().plus(1, ChronoUnit.HOURS);
+        given(service.raise(any(UUID.class), anyString(), eq(gameId)))
+                .willThrow(new GameRaiseCooldownException(availableAt));
+
+        mockMvc.perform(patch("/api/v1/games/{gameId}/raise", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))
+                .andExpect(status().isTooManyRequests());
     }
 
     @Test

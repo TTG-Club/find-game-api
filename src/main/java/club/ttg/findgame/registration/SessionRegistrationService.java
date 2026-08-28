@@ -75,6 +75,24 @@ public class SessionRegistrationService {
         }
     }
 
+    /**
+     * Собственная заявка игрока на сессию. Нужна отдельным методом: список заявок
+     * доступен только мастеру, а `registeredPlayerIds` сессии содержит лишь
+     * принятых, поэтому по нему нельзя отличить `PENDING` от `REJECTED` и от
+     * «заявки не было». Отсутствие заявки — 404, вызывающий трактует его как
+     * «ещё не подавал».
+     */
+    @Transactional(readOnly = true)
+    public SessionRegistrationResponse findOwn(UUID playerId, UUID gameId, UUID sessionId, UUID inviteCode) {
+        Game game = gameRepository.findByIdAndDeletedAtIsNull(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        validatePlayerAccess(game, playerId, inviteCode);
+        findSession(gameId, sessionId);
+        return registrationRepository.findBySessionIdAndPlayerId(sessionId, playerId)
+                .map(mapper::toResponse)
+                .orElseThrow(() -> SessionRegistrationNotFoundException.forSession(sessionId));
+    }
+
     @Transactional(readOnly = true)
     public List<SessionRegistrationResponse> findAllForMaster(UUID masterId, UUID gameId, UUID sessionId) {
         Game game = gameRepository.findByIdAndDeletedAtIsNull(gameId)

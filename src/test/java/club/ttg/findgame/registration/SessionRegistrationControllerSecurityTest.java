@@ -23,7 +23,9 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -94,6 +96,39 @@ class SessionRegistrationControllerSecurityTest {
 
         verify(service).updatePaymentStatus(
                 eq(masterId), eq(gameId), eq(sessionId), eq(registrationId), any());
+    }
+
+    @Test
+    void guestCannotReadOwnRegistration() throws Exception {
+        mockMvc.perform(get(url() + "/me", UUID.randomUUID(), UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ownRegistrationUsesJwtSubjectAndKeepsInviteCode() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID inviteCode = UUID.randomUUID();
+
+        mockMvc.perform(get(url() + "/me", gameId, sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(playerId))
+                        .param("inviteCode", inviteCode.toString()))
+                .andExpect(status().isOk());
+
+        verify(service).findOwn(playerId, gameId, sessionId, inviteCode);
+    }
+
+    @Test
+    void missingOwnRegistrationIsReportedAsNotFound() throws Exception {
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        given(service.findOwn(any(), any(), any(), any()))
+                .willThrow(SessionRegistrationNotFoundException.forSession(sessionId));
+
+        mockMvc.perform(get(url() + "/me", gameId, sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))
+                .andExpect(status().isNotFound());
     }
 
     private String url() {

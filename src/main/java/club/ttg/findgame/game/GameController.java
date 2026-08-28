@@ -81,6 +81,17 @@ public class GameController {
         return service.findPublic(filter, page, size);
     }
 
+    @GetMapping("/my")
+    @Operation(summary = "Получить свои игры: публичные и приватные, в любом статусе")
+    @SecurityRequirement(name = "bearerAuth")
+    public Page<GameResponse> findOwn(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
+        return service.findOwn(UUID.fromString(jwt.getSubject()), page, size);
+    }
+
     @GetMapping("/{gameId}")
     @Operation(summary = "Получить публичную игру или приватную игру по коду приглашения")
     public GameResponse get(
@@ -99,6 +110,19 @@ public class GameController {
             @PathVariable UUID gameId
     ) {
         service.close(UUID.fromString(jwt.getSubject()), gameId);
+    }
+
+    @PatchMapping("/{gameId}/raise")
+    @Operation(summary = "Поднять свою игру в публичном списке")
+    @SecurityRequirement(name = "bearerAuth")
+    public GameResponse raise(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        return service.raise(
+                UUID.fromString(jwt.getSubject()),
+                jwt.getClaimAsString("username"),
+                gameId);
     }
 
     @DeleteMapping("/{gameId}")

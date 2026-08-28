@@ -108,6 +108,9 @@ public class Game {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "list_position_at", nullable = false)
+    private Instant listPositionAt;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
@@ -125,6 +128,9 @@ public class Game {
         Instant now = Instant.now();
         if (createdAt == null) {
             createdAt = now;
+        }
+        if (listPositionAt == null) {
+            listPositionAt = createdAt;
         }
         if (updatedAt == null) {
             updatedAt = now;

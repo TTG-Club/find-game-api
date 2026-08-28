@@ -11,17 +11,22 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.util.List;
 import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,6 +44,15 @@ class GameServiceTest {
     private GameCreationLockService creationLockService;
 
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
+
+    @Test
+    void newGameStartsAtItsCreationPosition() {
+        Game game = new Game();
+
+        game.prePersist();
+
+        assertThat(game.getListPositionAt()).isEqualTo(game.getCreatedAt());
+    }
 
     @Test
     void createsPrivateGameAndReturnsInviteCode() {
@@ -149,7 +163,7 @@ class GameServiceTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void sortsSearchResultsFromNewestToOldest() {
+    void sortsSearchResultsByLatestListPosition() {
         when(repository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
 
         service().findPublic(GameSearchFilter.empty(), 2, 15);
@@ -158,7 +172,48 @@ class GameServiceTest {
         verify(repository).findAll(any(Specification.class), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(15);
-        assertThat(pageable.getValue().getSort().getOrderFor("createdAt").getDirection())
+        assertThat(pageable.getValue().getSort().getOrderFor("listPositionAt").getDirection())
+                .isEqualTo(Sort.Direction.DESC);
+        assertThat(pageable.getValue().getSort().getOrderFor("id").getDirection())
+                .isEqualTo(Sort.Direction.DESC);
+    }
+
+    @Test
+    void ownGamesKeepInviteCodeAndIncludePrivateAndClosed() {
+        UUID masterId = UUID.randomUUID();
+        UUID inviteCode = UUID.randomUUID();
+        Game privateClosed = raisableGame(masterId, Instant.now());
+        privateClosed.setVisibility(GameVisibility.PRIVATE);
+        privateClosed.setStatus(GameStatus.CLOSED);
+        privateClosed.setInviteCode(inviteCode);
+        when(repository.findAllByMasterIdAndDeletedAtIsNull(eq(masterId), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(privateClosed)));
+
+        Page<GameResponse> own = service().findOwn(masterId, 0, 20);
+
+        // Владельцу код нужен, чтобы собрать ссылку-приглашение: в публичных
+        // ответах он вырезается, здесь — обязан остаться.
+        assertThat(own.getContent()).singleElement()
+                .satisfies(game -> {
+                    assertThat(game.inviteCode()).isEqualTo(inviteCode);
+                    assertThat(game.visibility()).isEqualTo(GameVisibility.PRIVATE);
+                    assertThat(game.status()).isEqualTo(GameStatus.CLOSED);
+                });
+    }
+
+    @Test
+    void ownGamesUseTheSameStableOrderAsPublicSearch() {
+        UUID masterId = UUID.randomUUID();
+        when(repository.findAllByMasterIdAndDeletedAtIsNull(eq(masterId), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service().findOwn(masterId, 3, 10);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findAllByMasterIdAndDeletedAtIsNull(eq(masterId), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(3);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
+        assertThat(pageable.getValue().getSort().getOrderFor("listPositionAt").getDirection())
                 .isEqualTo(Sort.Direction.DESC);
         assertThat(pageable.getValue().getSort().getOrderFor("id").getDirection())
                 .isEqualTo(Sort.Direction.DESC);
@@ -232,8 +287,97 @@ class GameServiceTest {
         verify(repository, never()).save(any());
     }
 
+    @Test
+    void freeMasterCanRaisePublicOpenGameAfterOneDay() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(25, ChronoUnit.HOURS));
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        GameResponse response = service().raise(masterId, "game-master", gameId);
+
+        assertThat(response.listPositionAt()).isAfter(Instant.now().minus(1, ChronoUnit.MINUTES));
+        verify(repository).save(game);
+    }
+
+    @Test
+    void freeMasterCannotRaiseGameTwiceWithinOneDay() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(23, ChronoUnit.HOURS));
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
+                .isInstanceOf(GameRaiseCooldownException.class)
+                .satisfies(exception -> assertThat(((GameRaiseCooldownException) exception).getAvailableAt())
+                        .isEqualTo(game.getListPositionAt().plus(1, ChronoUnit.DAYS)));
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void activeSubscriberCanRaiseGameAfterOneHour() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(61, ChronoUnit.MINUTES));
+        when(subscriptionStatusClient.status("subscriber")).thenReturn(Optional.of(
+                new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "BUY")));
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        service().raise(masterId, "subscriber", gameId);
+
+        verify(repository).save(game);
+    }
+
+    @Test
+    void subscriptionServiceFailureUsesDailyRaiseInterval() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.HOURS));
+        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
+                .isInstanceOf(GameRaiseCooldownException.class);
+    }
+
+    @Test
+    void cannotRaiseAnotherMastersGame() {
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(UUID.randomUUID(), Instant.now().minus(2, ChronoUnit.DAYS));
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().raise(UUID.randomUUID(), "game-master", gameId))
+                .isInstanceOf(GameAccessDeniedException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void cannotRaiseClosedGame() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.DAYS));
+        game.setStatus(GameStatus.CLOSED);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
+                .isInstanceOf(GameCannotBeRaisedException.class);
+    }
+
     private GameService service() {
         return new GameService(repository, mapper, subscriptionStatusClient, creationLockService);
+    }
+
+    private Game raisableGame(UUID masterId, Instant listPositionAt) {
+        Game game = new Game();
+        game.setMasterId(masterId);
+        game.setVisibility(GameVisibility.PUBLIC);
+        game.setStatus(GameStatus.OPEN);
+        game.setListPositionAt(listPositionAt);
+        return game;
     }
 
     private CreateGameRequest withAges(CreateGameRequest source, Integer minAge, Integer maxAge) {

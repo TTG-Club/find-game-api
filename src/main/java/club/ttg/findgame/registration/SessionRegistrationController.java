@@ -61,6 +61,17 @@ public class SessionRegistrationController {
         return service.findAllForMaster(UUID.fromString(jwt.getSubject()), gameId, sessionId);
     }
 
+    @GetMapping("/me")
+    @Operation(summary = "Получить свою заявку на сессию (404, если заявки не было)")
+    public SessionRegistrationResponse findOwn(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID sessionId,
+            @RequestParam(required = false) UUID inviteCode
+    ) {
+        return service.findOwn(UUID.fromString(jwt.getSubject()), gameId, sessionId, inviteCode);
+    }
+
     @PatchMapping("/{registrationId}")
     @Operation(summary = "Принять или отклонить заявку (только мастер)")
     public SessionRegistrationResponse review(

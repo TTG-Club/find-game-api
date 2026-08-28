@@ -7,6 +7,8 @@ import club.ttg.findgame.game.GameAccessDeniedException;
 import club.ttg.findgame.game.ActiveGameLimitExceededException;
 import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
+import club.ttg.findgame.game.GameCannotBeRaisedException;
+import club.ttg.findgame.game.GameRaiseCooldownException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
 import club.ttg.findgame.session.GameSessionNotFoundException;
@@ -46,6 +48,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ActiveGameLimitExceededException.class)
     ProblemDetail handleActiveGameLimit(ActiveGameLimitExceededException exception) {
         return problem(HttpStatus.CONFLICT, "Достигнут лимит активных игр", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameRaiseCooldownException.class)
+    ProblemDetail handleGameRaiseCooldown(GameRaiseCooldownException exception) {
+        ProblemDetail detail = problem(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "Игру пока нельзя поднять",
+                exception.getMessage());
+        detail.setProperty("availableAt", exception.getAvailableAt());
+        return detail;
+    }
+
+    @ExceptionHandler(GameCannotBeRaisedException.class)
+    ProblemDetail handleGameCannotBeRaised(GameCannotBeRaisedException exception) {
+        return problem(HttpStatus.CONFLICT, "Игру нельзя поднять", exception.getMessage());
     }
 
     @ExceptionHandler(GameAccessDeniedException.class)
