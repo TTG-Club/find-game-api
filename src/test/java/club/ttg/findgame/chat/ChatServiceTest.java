@@ -9,12 +9,13 @@ import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -42,7 +43,7 @@ class ChatServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = JsonMapper.builder().build();
 
     @Test
     void masterSendsTextToGameChat() {
@@ -73,7 +74,7 @@ class ChatServiceTest {
 
         assertThat(response.payload().get("results")).hasSize(2);
         assertThat(response.payload().get("total").asInt()).isBetween(5, 15);
-        assertThat(response.payload().get("label").asText()).isEqualTo("Урон");
+        assertThat(response.payload().get("label").stringValue()).isEqualTo("Урон");
     }
 
     @Test
@@ -118,9 +119,9 @@ class ChatServiceTest {
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.SPELL_CAST, null, null,
                         new SpellCastRequest("magic-missile", "Волшебная стрела", 1, "Гоблин")));
 
-        assertThat(response.payload().get("spellId").asText()).isEqualTo("magic-missile");
+        assertThat(response.payload().get("spellId").stringValue()).isEqualTo("magic-missile");
         assertThat(response.payload().get("level").asInt()).isEqualTo(1);
-        assertThat(response.payload().get("target").asText()).isEqualTo("Гоблин");
+        assertThat(response.payload().get("target").stringValue()).isEqualTo("Гоблин");
     }
 
     private ChatService service() {

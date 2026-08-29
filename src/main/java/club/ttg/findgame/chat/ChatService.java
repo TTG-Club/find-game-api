@@ -11,14 +11,14 @@ import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.session.GameSessionRepository;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.security.SecureRandom;
 import java.time.Instant;
