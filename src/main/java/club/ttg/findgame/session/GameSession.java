@@ -32,7 +32,11 @@ public class GameSession {
     @Column(nullable = false, length = 150)
     private String title;
 
-    @Column(name = "starts_at", nullable = false)
+    /**
+     * Дата и время начала. Пусто у набора с открытой датой: мастер назначает
+     * его после того, как соберёт игроков.
+     */
+    @Column(name = "starts_at")
     private Instant startsAt;
 
     @Column(name = "estimated_duration_minutes")

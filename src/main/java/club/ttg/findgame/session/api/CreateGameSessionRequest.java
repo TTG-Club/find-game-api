@@ -15,7 +15,11 @@ import java.time.Instant;
 
 public record CreateGameSessionRequest(
         @NotBlank @Size(max = 150) String title,
-        @NotNull @FutureOrPresent Instant startsAt,
+        /**
+         * Начало сессии. Необязательно: пустое означает набор с открытой
+         * датой — мастер назначит время, когда соберёт игроков.
+         */
+        @FutureOrPresent Instant startsAt,
         @Positive Integer estimatedDurationMinutes,
         @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2) BigDecimal priceAmount,
         @Pattern(regexp = "[A-Z]{3}", message = "должно содержать трёхбуквенный код валюты ISO 4217")

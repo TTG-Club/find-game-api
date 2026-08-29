@@ -12,7 +12,7 @@ public record CopyGameSessionRequest(
         @Pattern(regexp = ".*\\S.*", message = "не должно быть пустой строкой")
         String title,
 
-        @NotNull @FutureOrPresent
+        @FutureOrPresent
         Instant startsAt
 ) {
 }

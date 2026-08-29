@@ -11,6 +11,7 @@ import club.ttg.findgame.game.GameCannotBeRaisedException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
+import club.ttg.findgame.session.InvalidGameSessionDateException;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.registration.InvalidSessionRegistrationException;
 import club.ttg.findgame.registration.SessionRegistrationAccessDeniedException;
@@ -83,6 +84,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidGameSessionCostException.class)
     ProblemDetail handleInvalidSessionCost(InvalidGameSessionCostException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректная стоимость сессии", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidGameSessionDateException.class)
+    ProblemDetail handleInvalidSessionDate(InvalidGameSessionDateException exception) {
+        return problem(HttpStatus.CONFLICT, "Дату сессии нельзя изменить", exception.getMessage());
     }
 
     @ExceptionHandler(SessionRegistrationNotFoundException.class)
