@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public interface GameSessionRepository extends JpaRepository<GameSession, UUID> {
 
+    boolean existsByGameId(UUID gameId);
+
     List<GameSession> findAllByGameIdOrderByStartsAtAsc(UUID gameId);
 
     Optional<GameSession> findByIdAndGameId(UUID id, UUID gameId);

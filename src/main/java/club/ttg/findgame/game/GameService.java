@@ -3,6 +3,10 @@ package club.ttg.findgame.game;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
+import club.ttg.findgame.game.api.UpdateGameRequest;
+import club.ttg.findgame.registration.SessionRegistrationRepository;
+import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,17 +28,25 @@ public class GameService {
     private final GameMapper mapper;
     private final SubscriptionStatusClient subscriptionStatusClient;
     private final GameCreationLockService creationLockService;
+    // Нужны редактированию: правка не должна расходиться с уже созданными
+    // сессиями и принятыми в них игроками.
+    private final GameSessionRepository sessionRepository;
+    private final SessionRegistrationRepository registrationRepository;
 
     public GameService(
             GameRepository repository,
             GameMapper mapper,
             SubscriptionStatusClient subscriptionStatusClient,
-            GameCreationLockService creationLockService
+            GameCreationLockService creationLockService,
+            GameSessionRepository sessionRepository,
+            SessionRegistrationRepository registrationRepository
     ) {
         this.repository = repository;
         this.mapper = mapper;
         this.subscriptionStatusClient = subscriptionStatusClient;
         this.creationLockService = creationLockService;
+        this.sessionRepository = sessionRepository;
+        this.registrationRepository = registrationRepository;
     }
 
     @Transactional
@@ -42,7 +54,7 @@ public class GameService {
         if (request.playersToStart() > request.maxPlayers()) {
             throw new InvalidPlayerCountException();
         }
-        validateDetails(request);
+        validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
         enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
@@ -52,6 +64,89 @@ public class GameService {
             game.setInviteCode(UUID.randomUUID());
         }
         return mapper.toResponse(repository.save(game));
+    }
+
+    /**
+     * Изменяет свою игру. Правки принимаются целиком: форма редактирования —
+     * та же, что и создания, поэтому и проверки те же.
+     *
+     * Сверх них два ограничения, которых нет при создании, — оба защищают уже
+     * существующие сессии и заявки от рассинхронизации:
+     * <ul>
+     *   <li>платность нельзя переключить, когда у игры уже есть сессии: у
+     *   сессий бесплатной игры нет ни суммы, ни условий оплаты, а у платной
+     *   они обязательны, и задним числом это не выправить;</li>
+     *   <li>максимум игроков нельзя опустить ниже числа уже принятых в
+     *   какую-либо сессию — иначе принятые окажутся сверх лимита.</li>
+     * </ul>
+     *
+     * Смена видимости управляет кодом приглашения: он выдаётся при переходе в
+     * приватную игру и снимается при возврате в публичную.
+     */
+    @Transactional
+    public GameResponse update(UUID masterId, UUID gameId, UpdateGameRequest request) {
+        Game game = repository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameAccessDeniedException();
+        }
+        if (request.playersToStart() > request.maxPlayers()) {
+            throw new InvalidPlayerCountException();
+        }
+        validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
+        validateCostTypeChange(game, request.costType());
+        validateMaxPlayersChange(gameId, request.maxPlayers());
+
+        GameVisibility previousVisibility = game.getVisibility();
+        mapper.updateEntity(game, request);
+        applyVisibilityChange(game, previousVisibility);
+
+        return mapper.toResponse(repository.save(game));
+    }
+
+    /**
+     * Платность меняется только у игры без сессий: у существующих сессий
+     * платёжные поля уже зафиксированы под прежний тип.
+     */
+    private void validateCostTypeChange(Game game, GameCostType requested) {
+        if (game.getCostType() == requested) {
+            return;
+        }
+        if (sessionRepository.existsByGameId(game.getId())) {
+            throw new InvalidGameDetailsException(
+                    "Платность нельзя изменить, когда у игры уже есть сессии");
+        }
+    }
+
+    /**
+     * Максимум игроков не опускается ниже уже принятых: сервис не даёт принять
+     * игроков сверх лимита, и созданный правкой перебор чинить было бы нечем.
+     */
+    private void validateMaxPlayersChange(UUID gameId, int requestedMaxPlayers) {
+        long approved = sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId).stream()
+                .mapToLong(session -> registrationRepository.countBySessionIdAndStatus(
+                        session.getId(), SessionRegistrationStatus.APPROVED))
+                .max()
+                .orElse(0L);
+        if (approved > requestedMaxPlayers) {
+            throw new InvalidPlayerCountException(
+                    "В сессию уже принято %d игроков — максимум не может быть меньше".formatted(approved));
+        }
+    }
+
+    /**
+     * Держит код приглашения в согласии с видимостью: приватной игре он нужен,
+     * публичной — нет, и оставленный код открывал бы прямой доступ и дальше.
+     */
+    private void applyVisibilityChange(Game game, GameVisibility previousVisibility) {
+        if (game.getVisibility() == previousVisibility) {
+            return;
+        }
+        if (game.getVisibility() == GameVisibility.PRIVATE) {
+            game.setInviteCode(UUID.randomUUID());
+        } else {
+            game.setInviteCode(null);
+        }
     }
 
     @Transactional
@@ -148,15 +243,18 @@ public class GameService {
                 response.createdAt(), response.listPositionAt(), response.updatedAt());
     }
 
-    private void validateDetails(CreateGameRequest request) {
-        if (request.type() == GameType.ONLINE && request.city() != null) {
+    /**
+     * Проверки, общие для создания и редактирования: город только у офлайна и
+     * непротиворечивые возрастные границы.
+     */
+    private void validateDetails(GameType type, String city, Integer minAge, Integer maxAge) {
+        if (type == GameType.ONLINE && city != null) {
             throw new InvalidGameDetailsException("Город можно указывать только для офлайн-игры");
         }
-        if (request.city() != null && request.city().isBlank()) {
+        if (city != null && city.isBlank()) {
             throw new InvalidGameDetailsException("Город не может быть пустой строкой");
         }
-        if (request.minAge() != null && request.maxAge() != null
-                && request.minAge() > request.maxAge()) {
+        if (minAge != null && maxAge != null && minAge > maxAge) {
             throw new InvalidGameDetailsException("Минимальный возраст не может превышать максимальный");
         }
     }

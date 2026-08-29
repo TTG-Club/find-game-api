@@ -36,6 +36,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(GameController.class)
@@ -190,6 +191,56 @@ class GameControllerSecurityTest {
                 .andExpect(status().isNoContent());
 
         verify(service).close(masterId, gameId);
+    }
+
+    @Test
+    void guestCannotEditGame() throws Exception {
+        mockMvc.perform(put("/api/v1/games/{gameId}", UUID.randomUUID())
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isUnauthorized());
+
+        verify(service, never()).update(any(), any(), any());
+    }
+
+    @Test
+    void editUsesJwtSubjectAsMaster() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(put("/api/v1/games/{gameId}", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isOk());
+
+        // Владельца берём только из токена: подменить его телом запроса нельзя.
+        verify(service).update(eq(masterId), eq(gameId), any());
+    }
+
+    @Test
+    void editRejectsInvalidBody() throws Exception {
+        mockMvc.perform(put("/api/v1/games/{gameId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content("""
+                                {"title":"","system":"DND_2024"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(service, never()).update(any(), any(), any());
+    }
+
+    @Test
+    void editByStrangerIsForbidden() throws Exception {
+        given(service.update(any(), any(), any()))
+                .willThrow(new GameAccessDeniedException());
+
+        mockMvc.perform(put("/api/v1/games/{gameId}", UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content(validRequest()))
+                .andExpect(status().isForbidden());
     }
 
     @Test

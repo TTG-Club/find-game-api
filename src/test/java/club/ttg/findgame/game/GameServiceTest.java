@@ -3,6 +3,11 @@ package club.ttg.findgame.game;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
+import club.ttg.findgame.game.api.UpdateGameRequest;
+import club.ttg.findgame.registration.SessionRegistrationRepository;
+import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.session.GameSession;
+import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +49,12 @@ class GameServiceTest {
 
     @Mock
     private GameCreationLockService creationLockService;
+
+    @Mock
+    private GameSessionRepository sessionRepository;
+
+    @Mock
+    private SessionRegistrationRepository registrationRepository;
 
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
 
@@ -367,8 +380,291 @@ class GameServiceTest {
                 .isInstanceOf(GameCannotBeRaisedException.class);
     }
 
+    @Test
+    void masterEditsOwnGame() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateGameRequest request = withTitle(updateRequest(), "Новое название");
+        GameResponse response = service().update(masterId, gameId, request);
+
+        assertThat(response.title()).isEqualTo("Новое название");
+        // Владение и статус редактированием не управляются.
+        assertThat(response.masterId()).isEqualTo(masterId);
+        assertThat(response.status()).isEqualTo(GameStatus.OPEN);
+    }
+
+    @Test
+    void strangerCannotEditGame() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().update(UUID.randomUUID(), gameId, updateRequest()))
+                .isInstanceOf(GameAccessDeniedException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void editKeepsTheSameChecksAsCreation() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        lenient().when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().update(
+                masterId, gameId, withPlayers(updateRequest(), 6, 5)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        assertThatThrownBy(() -> service().update(
+                masterId, gameId, withCity(updateRequest(), "Кишинёв")))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void switchingToPrivateIssuesInviteCode() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service().update(
+                masterId, gameId, withVisibility(updateRequest(), GameVisibility.PRIVATE));
+
+        assertThat(response.inviteCode()).isNotNull();
+    }
+
+    @Test
+    void switchingBackToPublicClearsInviteCode() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setVisibility(GameVisibility.PRIVATE);
+        game.setInviteCode(UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Оставленный код открывал бы прямой доступ и после возврата в публичные.
+        GameResponse response = service().update(masterId, gameId, updateRequest());
+
+        assertThat(response.inviteCode()).isNull();
+    }
+
+    @Test
+    void typoInTitleIsFixableEvenWithSessionsAndApprovedPlayers() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setTitle("Проклятье Сирада");
+        GameSession session = mock(GameSession.class);
+        when(session.getId()).thenReturn(sessionId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
+                .thenReturn(List.of(session));
+        when(registrationRepository.countBySessionIdAndStatus(
+                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Замок стоит только на платности: опечатку в названии мастер обязан
+        // мочь исправить в любой момент, даже когда игроки уже набраны.
+        GameResponse response = service().update(
+                masterId, gameId, withTitle(updateRequest(), "Проклятие Страда"));
+
+        assertThat(response.title()).isEqualTo("Проклятие Страда");
+    }
+
+    @Test
+    void costTypeCannotChangeWhenSessionsExist() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.existsByGameId(gameId)).thenReturn(true);
+
+        // У сессий бесплатной игры нет ни суммы, ни условий оплаты — задним
+        // числом сделать игру платной нечем.
+        assertThatThrownBy(() -> service().update(
+                masterId, gameId, withCostType(updateRequest(), GameCostType.PAID)))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void costTypeChangesFreelyWhileThereAreNoSessions() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.existsByGameId(gameId)).thenReturn(false);
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service().update(
+                masterId, gameId, withCostType(updateRequest(), GameCostType.PAID));
+
+        assertThat(response.costType()).isEqualTo(GameCostType.PAID);
+    }
+
+    @Test
+    void maxPlayersCannotDropBelowApprovedPlayers() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        GameSession session = mock(GameSession.class);
+        when(session.getId()).thenReturn(sessionId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
+                .thenReturn(List.of(session));
+        when(registrationRepository.countBySessionIdAndStatus(
+                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
+
+        // Иначе принятые игроки оказались бы сверх лимита, а починить это нечем.
+        assertThatThrownBy(() -> service().update(
+                masterId, gameId, withPlayers(updateRequest(), 2, 3)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void maxPlayersGrowsFreely() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        GameSession session = mock(GameSession.class);
+        when(session.getId()).thenReturn(sessionId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
+                .thenReturn(List.of(session));
+        when(registrationRepository.countBySessionIdAndStatus(
+                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service().update(
+                masterId, gameId, withPlayers(updateRequest(), 3, 8));
+
+        assertThat(response.maxPlayers()).isEqualTo(8);
+    }
+
+    @Test
+    void editingMissingGameIsNotFound() {
+        UUID gameId = UUID.randomUUID();
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().update(UUID.randomUUID(), gameId, updateRequest()))
+                .isInstanceOf(GameNotFoundException.class);
+    }
+
+    private UpdateGameRequest withTitle(UpdateGameRequest source, String title) {
+        return new UpdateGameRequest(
+                title, source.system(), source.imageUrl(), source.virtualTableUrl(), source.genre(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.playersToStart(), source.maxPlayers(), source.minAge(),
+                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.durationType(), source.costType(), source.visibility());
+    }
+
+    private UpdateGameRequest withPlayers(
+            UpdateGameRequest source, int playersToStart, int maxPlayers) {
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.genre(), source.description(), source.requirements(), source.allowedSources(),
+                source.type(), source.city(), playersToStart, maxPlayers, source.minAge(),
+                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.durationType(), source.costType(), source.visibility());
+    }
+
+    private UpdateGameRequest withCity(UpdateGameRequest source, String city) {
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.genre(), source.description(), source.requirements(), source.allowedSources(),
+                source.type(), city, source.playersToStart(), source.maxPlayers(), source.minAge(),
+                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.durationType(), source.costType(), source.visibility());
+    }
+
+    private UpdateGameRequest withCostType(UpdateGameRequest source, GameCostType costType) {
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.genre(), source.description(), source.requirements(), source.allowedSources(),
+                source.type(), source.city(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.durationType(), costType, source.visibility());
+    }
+
+    private UpdateGameRequest withVisibility(
+            UpdateGameRequest source, GameVisibility visibility) {
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.genre(), source.description(), source.requirements(), source.allowedSources(),
+                source.type(), source.city(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.durationType(), source.costType(), visibility);
+    }
+
     private GameService service() {
-        return new GameService(repository, mapper, subscriptionStatusClient, creationLockService);
+        return new GameService(
+                repository,
+                mapper,
+                subscriptionStatusClient,
+                creationLockService,
+                sessionRepository,
+                registrationRepository);
+    }
+
+    /** Игра мастера в исходном состоянии — то, что правит редактирование. */
+    private Game editableGame(UUID gameId, UUID masterId) {
+        Game game = new Game();
+
+        game.setId(gameId);
+        game.setMasterId(masterId);
+        game.setTitle("Проклятие Страда");
+        game.setSystem(GameSystem.DND_2024);
+        game.setDescription("Кампания");
+        game.setRequirements("Требования");
+        game.setType(GameType.ONLINE);
+        game.setPlayersToStart(3);
+        game.setMaxPlayers(5);
+        game.setStartingLevel(1);
+        game.setStatus(GameStatus.OPEN);
+        game.setDurationType(GameDurationType.CAMPAIGN);
+        game.setCostType(GameCostType.FREE);
+        game.setVisibility(GameVisibility.PUBLIC);
+
+        return game;
+    }
+
+    /** Тело правки: по умолчанию совпадает с {@link #editableGame}. */
+    private UpdateGameRequest updateRequest() {
+        return new UpdateGameRequest(
+                "Проклятие Страда",
+                GameSystem.DND_2024,
+                null,
+                null,
+                null,
+                "Кампания",
+                "Требования",
+                null,
+                GameType.ONLINE,
+                null,
+                3,
+                5,
+                null,
+                null,
+                1,
+                false,
+                GameDurationType.CAMPAIGN,
+                GameCostType.FREE,
+                GameVisibility.PUBLIC);
     }
 
     private Game raisableGame(UUID masterId, Instant listPositionAt) {
