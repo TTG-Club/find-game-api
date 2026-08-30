@@ -4,6 +4,7 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
+import club.ttg.findgame.registration.GamePlayerCount;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
 import club.ttg.findgame.session.GameSessionRepository;
@@ -14,7 +15,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.time.Instant;
 import java.time.Duration;
 
@@ -63,7 +68,7 @@ public class GameService {
         if (game.getVisibility() == GameVisibility.PRIVATE) {
             game.setInviteCode(UUID.randomUUID());
         }
-        return mapper.toResponse(repository.save(game));
+        return toOwnerResponse(repository.save(game));
     }
 
     /**
@@ -101,7 +106,7 @@ public class GameService {
         mapper.updateEntity(game, request);
         applyVisibilityChange(game, previousVisibility);
 
-        return mapper.toResponse(repository.save(game));
+        return toOwnerResponse(repository.save(game));
     }
 
     /**
@@ -186,7 +191,9 @@ public class GameService {
     @Transactional(readOnly = true)
     public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
-        return repository.findAll(GameSpecifications.publicGames(filter), pageable).map(this::toPublicResponse);
+        Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter), pageable);
+        Map<UUID, Integer> approved = countApprovedPlayers(games.getContent());
+        return games.map(game -> toPublicResponse(game, approved));
     }
 
     /**
@@ -200,7 +207,9 @@ public class GameService {
     @Transactional(readOnly = true)
     public Page<GameResponse> findOwn(UUID masterId, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
-        return repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable).map(mapper::toResponse);
+        Page<Game> games = repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable);
+        Map<UUID, Integer> approved = countApprovedPlayers(games.getContent());
+        return games.map(game -> mapper.toResponse(game, approvedOf(approved, game)));
     }
 
     @Transactional(readOnly = true)
@@ -232,15 +241,40 @@ public class GameService {
     }
 
     private GameResponse toPublicResponse(Game game) {
-        GameResponse response = mapper.toResponse(game);
-        return new GameResponse(
-                response.id(), response.masterId(), response.title(), response.system(), response.imageUrl(),
-                response.virtualTableUrl(), response.genre(), response.description(), response.requirements(),
-                response.allowedSources(), response.type(), response.city(), response.playersToStart(),
-                response.maxPlayers(), response.minAge(), response.maxAge(), response.startingLevel(),
-                response.crossplayAllowed(), response.status(), response.durationType(), response.costType(),
-                response.visibility(), null,
-                response.createdAt(), response.listPositionAt(), response.updatedAt());
+        return toPublicResponse(game, countApprovedPlayers(List.of(game)));
+    }
+
+    private GameResponse toPublicResponse(Game game, Map<UUID, Integer> approved) {
+        return mapper.toResponse(game, approvedOf(approved, game)).copyWithoutInviteCode();
+    }
+
+    /**
+     * Ответ владельцу: с кодом приглашения — он нужен мастеру, чтобы собрать
+     * ссылку на приватную игру.
+     */
+    private GameResponse toOwnerResponse(Game game) {
+        return mapper.toResponse(game, approvedOf(countApprovedPlayers(List.of(game)), game));
+    }
+
+    private static int approvedOf(Map<UUID, Integer> approved, Game game) {
+        return approved.getOrDefault(game.getId(), 0);
+    }
+
+    /**
+     * Сколько игроков уже принято в каждую игру. Число выводится из заявок и
+     * считается одним запросом на всю страницу выдачи.
+     */
+    private Map<UUID, Integer> countApprovedPlayers(Collection<Game> games) {
+        List<UUID> gameIds = games.stream().map(Game::getId).toList();
+        if (gameIds.isEmpty()) {
+            return Map.of();
+        }
+        return registrationRepository
+                .countApprovedPlayersByGame(gameIds, SessionRegistrationStatus.APPROVED)
+                .stream()
+                .collect(Collectors.toMap(
+                        GamePlayerCount::getGameId,
+                        count -> Math.toIntExact(count.getPlayerCount())));
     }
 
     /**

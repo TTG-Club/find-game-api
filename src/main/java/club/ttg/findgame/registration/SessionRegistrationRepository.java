@@ -32,6 +32,24 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
             SessionRegistrationStatus status
     );
 
+    /**
+     * Сколько разных игроков принято в игры. Считается разом по странице
+     * выдачи: карточка каталога показывает занятые места, а запрос на игру
+     * означал бы восемь запросов на страницу.
+     */
+    @Query("""
+            select session.gameId as gameId, count(distinct registration.playerId) as playerCount
+            from SessionRegistration registration
+            join GameSession session on session.id = registration.sessionId
+            where session.gameId in :gameIds
+              and registration.status = :status
+            group by session.gameId
+            """)
+    List<GamePlayerCount> countApprovedPlayersByGame(
+            @Param("gameIds") Collection<UUID> gameIds,
+            @Param("status") SessionRegistrationStatus status
+    );
+
     @Query("""
             select (count(registration) > 0)
             from SessionRegistration registration

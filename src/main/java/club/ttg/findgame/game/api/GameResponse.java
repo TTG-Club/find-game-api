@@ -27,6 +27,7 @@ public record GameResponse(
         String city,
         int playersToStart,
         int maxPlayers,
+        int approvedPlayers,
         Integer minAge,
         Integer maxAge,
         int startingLevel,
@@ -40,4 +41,16 @@ public record GameResponse(
         Instant listPositionAt,
         Instant updatedAt
 ) {
+
+    /**
+     * Тот же ответ без кода приглашения: он принадлежит только владельцу игры,
+     * а публичная выдача отдаёт игру всем.
+     */
+    public GameResponse copyWithoutInviteCode() {
+        return new GameResponse(
+                id, masterId, title, system, imageUrl, virtualTableUrl, genre, description, requirements,
+                allowedSources, type, city, playersToStart, maxPlayers, approvedPlayers, minAge, maxAge,
+                startingLevel, crossplayAllowed, status, durationType, costType, visibility, null,
+                createdAt, listPositionAt, updatedAt);
+    }
 }

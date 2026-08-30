@@ -45,5 +45,9 @@ public interface GameMapper {
     )
     void updateEntity(@MappingTarget Game game, UpdateGameRequest request);
 
-    GameResponse toResponse(Game game);
+    /**
+     * Число принятых игроков в самой игре не хранится: оно выводится из заявок,
+     * поэтому приходит отдельным параметром.
+     */
+    GameResponse toResponse(Game game, int approvedPlayers);
 }

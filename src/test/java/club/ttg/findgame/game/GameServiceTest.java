@@ -4,6 +4,7 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
+import club.ttg.findgame.registration.GamePlayerCount;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
 import club.ttg.findgame.session.GameSession;
@@ -189,6 +190,59 @@ class GameServiceTest {
                 .isEqualTo(Sort.Direction.DESC);
         assertThat(pageable.getValue().getSort().getOrderFor("id").getDirection())
                 .isEqualTo(Sort.Direction.DESC);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void searchResultsCarryApprovedPlayerCount() {
+        Game game = raisableGame(UUID.randomUUID(), Instant.now());
+        game.setId(UUID.randomUUID());
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(registrationRepository.countApprovedPlayersByGame(
+                List.of(game.getId()), SessionRegistrationStatus.APPROVED))
+                .thenReturn(List.of(playerCount(game.getId(), 2)));
+
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+
+        // Число занятых мест в игре не хранится: карточка каталога получает
+        // его посчитанным по принятым заявкам.
+        assertThat(found.getContent()).singleElement()
+                .satisfies(response -> assertThat(response.approvedPlayers()).isEqualTo(2));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void gameWithoutApprovedPlayersReportsZeroSeatsTaken() {
+        Game game = raisableGame(UUID.randomUUID(), Instant.now());
+        game.setId(UUID.randomUUID());
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(registrationRepository.countApprovedPlayersByGame(
+                List.of(game.getId()), SessionRegistrationStatus.APPROVED))
+                .thenReturn(List.of());
+
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+
+        // Игры без заявок в групповой выдаче нет вовсе — это ноль, а не пропуск.
+        assertThat(found.getContent()).singleElement()
+                .satisfies(response -> assertThat(response.approvedPlayers()).isZero());
+    }
+
+    /** Строка группового подсчёта принятых игроков. */
+    private static GamePlayerCount playerCount(UUID gameId, long players) {
+        return new GamePlayerCount() {
+
+            @Override
+            public UUID getGameId() {
+                return gameId;
+            }
+
+            @Override
+            public long getPlayerCount() {
+                return players;
+            }
+        };
     }
 
     @Test
