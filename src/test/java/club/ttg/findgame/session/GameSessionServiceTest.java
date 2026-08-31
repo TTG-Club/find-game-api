@@ -1,8 +1,10 @@
 package club.ttg.findgame.session;
 
+import club.ttg.findgame.chat.ChatService;
 import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
@@ -43,6 +45,12 @@ class GameSessionServiceTest {
 
     @Mock
     private SessionRegistrationRepository registrationRepository;
+
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
+    private ChatService chatService;
 
     private final GameSessionMapper mapper = Mappers.getMapper(GameSessionMapper.class);
 
@@ -92,17 +100,38 @@ class GameSessionServiceTest {
     }
 
     @Test
-    void paidGameRequiresCostOnSession() {
+    void paidGameRejectsHalfFilledCostOnSession() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = game(masterId, GameCostType.PAID);
         when(gameRepository.findByIdForUpdate(gameId)).thenReturn(java.util.Optional.of(game));
         CreateGameSessionRequest request = new CreateGameSessionRequest(
-                "Первая глава", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null);
+                "Первая глава", Instant.parse("2099-01-10T18:00:00Z"), 240,
+                new java.math.BigDecimal("15.00"), null, null);
 
+        // Сумма без валюты игроку ничего не говорит.
         assertThatThrownBy(() -> service().create(masterId, gameId, request))
                 .isInstanceOf(InvalidGameSessionCostException.class);
         verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void paidGameAllowsFreeSession() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.PAID);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(java.util.Optional.of(game));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        CreateGameSessionRequest request = new CreateGameSessionRequest(
+                "Знакомство", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null);
+
+        // Платная игра не обязана быть платной целиком: знакомство или
+        // отработку мастер вправе провести бесплатно.
+        GameSessionResponse response = service().create(masterId, gameId, request);
+
+        assertThat(response.priceAmount()).isNull();
+        assertThat(response.paymentType()).isNull();
     }
 
     @Test
@@ -383,6 +412,49 @@ class GameSessionServiceTest {
     }
 
     @Test
+    void masterCancelsSessionThatDidNotHappen() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = new GameSession();
+        session.setStatus(GameSessionStatus.SCHEDULED);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameSessionResponse response = service().cancel(masterId, gameId, sessionId);
+
+        // Отмена — отдельный исход: по завершённым видно, что было сыграно.
+        assertThat(response.status()).isEqualTo(GameSessionStatus.CANCELLED);
+    }
+
+    @Test
+    void closedSessionIsNotClosedAgain() {
+        for (GameSessionStatus status : List.of(
+                GameSessionStatus.COMPLETED, GameSessionStatus.CANCELLED)) {
+            UUID masterId = UUID.randomUUID();
+            UUID gameId = UUID.randomUUID();
+            UUID sessionId = UUID.randomUUID();
+            GameSession session = new GameSession();
+            session.setStatus(status);
+            Game game = game(masterId, null);
+            when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+            when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                    .thenReturn(Optional.of(session));
+
+            assertThatThrownBy(() -> service().cancel(masterId, gameId, sessionId))
+                    .isInstanceOf(InvalidGameSessionStateException.class);
+            assertThatThrownBy(() -> service().complete(masterId, gameId, sessionId))
+                    .isInstanceOf(InvalidGameSessionStateException.class);
+        }
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     void completedSessionIsNotCompletedAgain() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
@@ -416,7 +488,9 @@ class GameSessionServiceTest {
     }
 
     private GameSessionService service() {
-        return new GameSessionService(gameRepository, sessionRepository, registrationRepository, mapper);
+        return new GameSessionService(
+                gameRepository, sessionRepository, registrationRepository, mapper,
+                notificationService, chatService);
     }
 
     /** Заявка на сессию бесплатной игры с произвольной датой. */

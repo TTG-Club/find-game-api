@@ -97,6 +97,32 @@ public class ChatService {
         return response;
     }
 
+    /**
+     * Пишет в чат событие самой игры — старт или завершение сессии.
+     *
+     * Без проверки доступа: вызывает не участник, а сервис в ответ на
+     * действие мастера, и право на это действие уже проверено. Автором
+     * ставится мастер: событие вызвано им, и лента остаётся с непустым
+     * автором, как того требует хранилище.
+     *
+     * @param gameId Игра.
+     * @param sessionId Сессия; `null` — общий чат игры.
+     * @param masterId Мастер, чьё действие вызвало событие.
+     * @param text Текст события.
+     */
+    @Transactional
+    public void publishSystem(UUID gameId, UUID sessionId, UUID masterId, String text) {
+        ChatEvent event = new ChatEvent();
+        event.setGameId(gameId);
+        event.setSessionId(sessionId);
+        event.setAuthorId(masterId);
+        event.setClientMessageId(UUID.randomUUID());
+        event.setType(ChatEventType.SYSTEM);
+        event.setContent(text);
+
+        eventPublisher.publishEvent(new ChatEventSaved(toResponse(eventRepository.save(event))));
+    }
+
     @Transactional(readOnly = true)
     public List<ChatEventResponse> history(
             UUID requesterId,
@@ -136,12 +162,15 @@ public class ChatService {
         if (game.getMasterId().equals(requesterId)) {
             return;
         }
-        boolean approved = sessionId == null
-                ? registrationRepository.existsApprovedPlayerInGame(
-                        gameId, requesterId, SessionRegistrationStatus.APPROVED)
+        // Общий чат игры открыт уже подавшему заявку: до решения мастера
+        // игроку есть о чём с ним говорить. Чат сессии — только принятым:
+        // там обсуждают саму игру, и состав уже определён.
+        boolean allowed = sessionId == null
+                ? registrationRepository.existsApplicantInGame(
+                        gameId, requesterId, SessionRegistrationStatus.REJECTED)
                 : registrationRepository.existsBySessionIdAndPlayerIdAndStatus(
                         sessionId, requesterId, SessionRegistrationStatus.APPROVED);
-        if (!approved) {
+        if (!allowed) {
             throw new ChatAccessDeniedException();
         }
     }
@@ -157,6 +186,9 @@ public class ChatService {
             }
             case DICE_ROLL -> event.setPayload(rollDice(request.diceRoll()));
             case SPELL_CAST -> event.setPayload(spellPayload(request.spellCast()));
+            // Системные события пишет сервис, а не участник.
+            case SYSTEM -> throw new InvalidChatEventException(
+                    "Событие SYSTEM отправляется сервисом, а не участником");
         }
     }
 

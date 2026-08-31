@@ -458,6 +458,36 @@ class GameServiceTest {
     }
 
     @Test
+    void ownerCanCancelGame() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = new Game();
+        game.setMasterId(masterId);
+        game.setStatus(GameStatus.OPEN);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        service().cancel(masterId, gameId);
+
+        // Не состоявшаяся игра закрывается отменой: «завершена» про такую —
+        // неправда, а по завершённым видно, что мастер действительно провёл.
+        assertThat(game.getStatus()).isEqualTo(GameStatus.CANCELLED);
+        verify(repository).save(game);
+    }
+
+    @Test
+    void anotherUserCannotCancelGame() {
+        UUID gameId = UUID.randomUUID();
+        Game game = new Game();
+        game.setMasterId(UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().cancel(UUID.randomUUID(), gameId))
+                .isInstanceOf(GameAccessDeniedException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
     void anotherUserCannotCloseGame() {
         UUID gameId = UUID.randomUUID();
         Game game = new Game();

@@ -13,6 +13,7 @@ import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
 import club.ttg.findgame.session.InvalidGameSessionDateException;
 import club.ttg.findgame.session.InvalidGameSessionStateException;
+import club.ttg.findgame.notification.NotificationNotFoundException;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.registration.InvalidSessionRegistrationException;
 import club.ttg.findgame.registration.SessionRegistrationAccessDeniedException;
@@ -75,6 +76,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GameSessionAccessDeniedException.class)
     ProblemDetail handleSessionAccessDenied(GameSessionAccessDeniedException exception) {
         return problem(HttpStatus.FORBIDDEN, "Доступ запрещён", exception.getMessage());
+    }
+
+    @ExceptionHandler(NotificationNotFoundException.class)
+    ProblemDetail handleNotificationNotFound(NotificationNotFoundException exception) {
+        return problem(HttpStatus.NOT_FOUND, "Уведомление не найдено", exception.getMessage());
     }
 
     @ExceptionHandler(GameSessionNotFoundException.class)

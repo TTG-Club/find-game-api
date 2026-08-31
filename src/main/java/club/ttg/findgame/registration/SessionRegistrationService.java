@@ -4,6 +4,8 @@ import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.registration.api.CreateSessionRegistrationRequest;
 import club.ttg.findgame.registration.api.ReviewSessionRegistrationRequest;
@@ -29,17 +31,20 @@ public class SessionRegistrationService {
     private final GameSessionRepository sessionRepository;
     private final SessionRegistrationRepository registrationRepository;
     private final SessionRegistrationMapper mapper;
+    private final NotificationService notificationService;
 
     public SessionRegistrationService(
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
             SessionRegistrationRepository registrationRepository,
-            SessionRegistrationMapper mapper
+            SessionRegistrationMapper mapper,
+            NotificationService notificationService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.mapper = mapper;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -68,11 +73,21 @@ public class SessionRegistrationService {
         registration.setSessionId(sessionId);
         registration.setPlayerId(playerId);
         registration.setStatus(SessionRegistrationStatus.PENDING);
+        SessionRegistration saved;
+
         try {
-            return mapper.toResponse(registrationRepository.saveAndFlush(registration));
+            saved = registrationRepository.saveAndFlush(registration);
         } catch (DataIntegrityViolationException exception) {
             throw new InvalidSessionRegistrationException("Игрок уже подал заявку на эту сессию");
         }
+
+        notificationService.notifyUser(
+                game.getMasterId(), playerId,
+                NotificationType.REGISTRATION_SUBMITTED,
+                game.getId(), game.getTitle(),
+                session.getId(), session.getTitle());
+
+        return mapper.toResponse(saved);
     }
 
     /**
@@ -115,7 +130,7 @@ public class SessionRegistrationService {
         Game game = gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         requireMaster(game, masterId);
-        findSession(gameId, sessionId);
+        GameSession reviewed = findSession(gameId, sessionId);
         SessionRegistration registration = registrationRepository.findByIdAndSessionId(registrationId, sessionId)
                 .orElseThrow(() -> new SessionRegistrationNotFoundException(registrationId));
 
@@ -135,7 +150,18 @@ public class SessionRegistrationService {
             registration.setAttendanceStatus(null);
             registration.setPaidAt(null);
         }
-        return mapper.toResponse(registrationRepository.save(registration));
+
+        SessionRegistration saved = registrationRepository.save(registration);
+
+        if (saved.getStatus() == SessionRegistrationStatus.APPROVED) {
+            notificationService.notifyUser(
+                    saved.getPlayerId(), masterId,
+                    NotificationType.REGISTRATION_APPROVED,
+                    game.getId(), game.getTitle(),
+                    reviewed.getId(), reviewed.getTitle());
+        }
+
+        return mapper.toResponse(saved);
     }
 
     @Transactional

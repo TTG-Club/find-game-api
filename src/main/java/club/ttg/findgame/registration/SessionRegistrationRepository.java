@@ -74,4 +74,24 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
             @Param("playerId") UUID playerId,
             @Param("status") SessionRegistrationStatus status
     );
+
+    /**
+     * Подавал ли игрок в игру заявку, которую не отклонили. Общий чат игры
+     * открывается уже по поданной заявке: игроку нужно договориться с
+     * мастером и остальными до того, как его примут, а отклонённому там
+     * делать нечего.
+     */
+    @Query("""
+            select (count(registration) > 0)
+            from SessionRegistration registration
+            join GameSession session on session.id = registration.sessionId
+            where session.gameId = :gameId
+              and registration.playerId = :playerId
+              and registration.status <> :excludedStatus
+            """)
+    boolean existsApplicantInGame(
+            @Param("gameId") UUID gameId,
+            @Param("playerId") UUID playerId,
+            @Param("excludedStatus") SessionRegistrationStatus excludedStatus
+    );
 }

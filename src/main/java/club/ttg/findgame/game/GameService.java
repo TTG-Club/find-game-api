@@ -160,12 +160,30 @@ public class GameService {
 
     @Transactional
     public void close(UUID masterId, UUID gameId) {
+        finish(masterId, gameId, GameStatus.CLOSED);
+    }
+
+    /**
+     * Отменяет игру: она не состоялась. Отдельный исход, а не разновидность
+     * завершения — по закрытым играм мастера видно, что было сыграно, и
+     * несостоявшимся среди них не место.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     */
+    @Transactional
+    public void cancel(UUID masterId, UUID gameId) {
+        finish(masterId, gameId, GameStatus.CANCELLED);
+    }
+
+    /** Переводит игру в конечное состояние: сыграна или не состоялась. */
+    private void finish(UUID masterId, UUID gameId, GameStatus status) {
         Game game = repository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         if (!game.getMasterId().equals(masterId)) {
             throw new GameAccessDeniedException();
         }
-        game.setStatus(GameStatus.CLOSED);
+        game.setStatus(status);
         repository.save(game);
     }
 

@@ -125,6 +125,17 @@ public class GameController {
         service.close(UUID.fromString(jwt.getSubject()), gameId);
     }
 
+    @PatchMapping("/{gameId}/cancel")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Отменить свою игру")
+    @SecurityRequirement(name = "bearerAuth")
+    public void cancel(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        service.cancel(UUID.fromString(jwt.getSubject()), gameId);
+    }
+
     @PatchMapping("/{gameId}/raise")
     @Operation(summary = "Поднять свою игру в публичном списке")
     @SecurityRequirement(name = "bearerAuth")

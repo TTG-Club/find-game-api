@@ -53,3 +53,7 @@ databaseChangeLog:
       file: db/changelog/changes/026-allow-open-session-date.sql
   - include:
       file: db/changelog/changes/027-add-registration-character-name.sql
+  - include:
+      file: db/changelog/changes/028-create-find-game-notifications.sql
+  - include:
+      file: db/changelog/changes/029-add-cancelled-status.sql

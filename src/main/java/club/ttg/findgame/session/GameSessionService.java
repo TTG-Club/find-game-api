@@ -5,6 +5,9 @@ import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
+import club.ttg.findgame.chat.ChatService;
+import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
@@ -30,17 +33,28 @@ public class GameSessionService {
     private final GameSessionRepository sessionRepository;
     private final SessionRegistrationRepository registrationRepository;
     private final GameSessionMapper mapper;
+    private final NotificationService notificationService;
+    private final ChatService chatService;
+
+    /** Тексты событий, которые сервис пишет в чат сессии. */
+    private static final String SESSION_STARTED_MESSAGE = "Сессия началась";
+    private static final String SESSION_COMPLETED_MESSAGE = "Сессия завершена";
+    private static final String SESSION_CANCELLED_MESSAGE = "Сессия отменена";
 
     public GameSessionService(
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
             SessionRegistrationRepository registrationRepository,
-            GameSessionMapper mapper
+            GameSessionMapper mapper,
+            NotificationService notificationService,
+            ChatService chatService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.mapper = mapper;
+        this.notificationService = notificationService;
+        this.chatService = chatService;
     }
 
     @Transactional
@@ -102,7 +116,8 @@ public class GameSessionService {
      */
     @Transactional
     public GameSessionResponse start(UUID masterId, UUID gameId, UUID sessionId) {
-        GameSession session = ownSession(masterId, gameId, sessionId);
+        OwnedSession owned = ownSession(masterId, gameId, sessionId);
+        GameSession session = owned.session();
         if (session.getStatus() != GameSessionStatus.SCHEDULED) {
             throw new InvalidGameSessionStateException(
                     "Начать можно только запланированную сессию");
@@ -110,14 +125,21 @@ public class GameSessionService {
 
         session.setStatus(GameSessionStatus.IN_PROGRESS);
 
-        return toResponse(sessionRepository.save(session), approvedPlayerIds(sessionId));
+        Set<UUID> players = approvedPlayerIds(sessionId);
+        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+
+        notifyPlayers(owned, masterId, players, NotificationType.SESSION_STARTED);
+        chatService.publishSystem(gameId, sessionId, masterId, SESSION_STARTED_MESSAGE);
+
+        return response;
     }
 
     /**
-     * Завершает сессию. Сыграна она или отменена — для набора это одно и то
-     * же: сессия уходит из предстоящих, места в ней больше не занимаются, а
-     * заявки остаются как история. Завершить можно и не начатую: отменённый
-     * набор закрывается тем же действием.
+     * Завершает сессию: она сыграна. Уходит из предстоящих, места в ней
+     * больше не занимаются, заявки остаются как история. Завершить можно и не
+     * начатую — мастер не обязан отмечать начало.
+     *
+     * Несостоявшуюся сессию закрывают отменой: {@link #cancel}.
      *
      * @param masterId Владелец игры из токена.
      * @param gameId Игра.
@@ -126,26 +148,83 @@ public class GameSessionService {
      */
     @Transactional
     public GameSessionResponse complete(UUID masterId, UUID gameId, UUID sessionId) {
-        GameSession session = ownSession(masterId, gameId, sessionId);
-        if (session.getStatus() == GameSessionStatus.COMPLETED) {
-            throw new InvalidGameSessionStateException("Сессия уже завершена");
+        OwnedSession owned = ownSession(masterId, gameId, sessionId);
+        GameSession session = owned.session();
+        if (session.getStatus() == GameSessionStatus.COMPLETED
+                || session.getStatus() == GameSessionStatus.CANCELLED) {
+            throw new InvalidGameSessionStateException("Сессия уже закрыта");
         }
 
         session.setStatus(GameSessionStatus.COMPLETED);
 
-        return toResponse(sessionRepository.save(session), approvedPlayerIds(sessionId));
+        Set<UUID> players = approvedPlayerIds(sessionId);
+        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+
+        notifyPlayers(owned, masterId, players, NotificationType.SESSION_COMPLETED);
+        chatService.publishSystem(gameId, sessionId, masterId, SESSION_COMPLETED_MESSAGE);
+
+        return response;
     }
 
-    /** Сессия своей игры: чужую мастер не трогает. */
-    private GameSession ownSession(UUID masterId, UUID gameId, UUID sessionId) {
+    /**
+     * Отменяет сессию: она не состоялась. От завершения отличается только
+     * исходом, но игроку разница важна — по завершённым видно, что было
+     * сыграно.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @param sessionId Сессия.
+     * @return Отменённая сессия.
+     */
+    @Transactional
+    public GameSessionResponse cancel(UUID masterId, UUID gameId, UUID sessionId) {
+        OwnedSession owned = ownSession(masterId, gameId, sessionId);
+        GameSession session = owned.session();
+        if (session.getStatus() == GameSessionStatus.COMPLETED
+                || session.getStatus() == GameSessionStatus.CANCELLED) {
+            throw new InvalidGameSessionStateException("Сессия уже закрыта");
+        }
+
+        session.setStatus(GameSessionStatus.CANCELLED);
+
+        Set<UUID> players = approvedPlayerIds(sessionId);
+        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+
+        notifyPlayers(owned, masterId, players, NotificationType.SESSION_CANCELLED);
+        chatService.publishSystem(gameId, sessionId, masterId, SESSION_CANCELLED_MESSAGE);
+
+        return response;
+    }
+
+    /** Сессия своей игры вместе с игрой: чужую мастер не трогает. */
+    private OwnedSession ownSession(UUID masterId, UUID gameId, UUID sessionId) {
         Game game = gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
 
-        return sessionRepository.findByIdAndGameId(sessionId, gameId)
+        GameSession session = sessionRepository.findByIdAndGameId(sessionId, gameId)
                 .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
+
+        return new OwnedSession(game, session);
+    }
+
+    /** Игра и её сессия — нужны вместе, чтобы уведомление знало название. */
+    private record OwnedSession(Game game, GameSession session) {
+    }
+
+    /** Сообщает принятым игрокам о смене состояния сессии. */
+    private void notifyPlayers(
+            OwnedSession owned,
+            UUID masterId,
+            Set<UUID> players,
+            NotificationType type
+    ) {
+        notificationService.notifyUsers(
+                players, masterId, type,
+                owned.game().getId(), owned.game().getTitle(),
+                owned.session().getId(), owned.session().getTitle());
     }
 
     /**
@@ -193,20 +272,26 @@ public class GameSessionService {
         return target;
     }
 
+    /**
+     * Условия оплаты сессии.
+     *
+     * Платная игра не обязана быть платной целиком: мастер вправе провести
+     * знакомство или отработку бесплатно, поэтому у её сессии платёжные поля
+     * либо заданы все три, либо не заданы вовсе. Заполнить их наполовину
+     * нельзя — сумма без валюты игроку ничего не говорит. У бесплатной игры
+     * платных сессий не бывает.
+     */
     private void validateCost(GameCostType costType, CreateGameSessionRequest request) {
-        boolean hasAnyCostField = request.priceAmount() != null
-                || request.priceCurrency() != null
-                || request.paymentType() != null;
-        if (costType == GameCostType.FREE && hasAnyCostField) {
+        int filled = (request.priceAmount() != null ? 1 : 0)
+                + (request.priceCurrency() != null ? 1 : 0)
+                + (request.paymentType() != null ? 1 : 0);
+        if (costType == GameCostType.FREE && filled > 0) {
             throw new InvalidGameSessionCostException(
                     "Для сессии бесплатной игры сумма, валюта и тип оплаты не указываются");
         }
-        if (costType == GameCostType.PAID
-                && (request.priceAmount() == null
-                || request.priceCurrency() == null
-                || request.paymentType() == null)) {
+        if (costType == GameCostType.PAID && filled > 0 && filled < 3) {
             throw new InvalidGameSessionCostException(
-                    "Для сессии платной игры необходимо указать сумму, валюту и тип оплаты");
+                    "У платной сессии нужны сумма, валюта и тип оплаты вместе");
         }
     }
 

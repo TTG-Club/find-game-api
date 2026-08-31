@@ -3,6 +3,7 @@ package club.ttg.findgame.registration;
 import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.registration.api.CreateSessionRegistrationRequest;
@@ -43,6 +44,9 @@ class SessionRegistrationServiceTest {
 
     @Mock
     private SessionRegistrationRepository registrationRepository;
+
+    @Mock
+    private NotificationService notificationService;
 
     private final SessionRegistrationMapper mapper = Mappers.getMapper(SessionRegistrationMapper.class);
 
@@ -369,7 +373,8 @@ class SessionRegistrationServiceTest {
 
     private SessionRegistrationService service() {
         return new SessionRegistrationService(
-                gameRepository, sessionRepository, registrationRepository, mapper);
+                gameRepository, sessionRepository, registrationRepository, mapper,
+                notificationService);
     }
 
     private Game publicGame(UUID gameId, UUID masterId) {

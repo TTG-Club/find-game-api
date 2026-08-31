@@ -93,6 +93,16 @@ public class GameSessionController {
         return service.complete(UUID.fromString(jwt.getSubject()), gameId, sessionId);
     }
 
+    @PatchMapping("/{sessionId}/cancel")
+    @Operation(summary = "Отменить сессию")
+    public GameSessionResponse cancel(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID sessionId
+    ) {
+        return service.cancel(UUID.fromString(jwt.getSubject()), gameId, sessionId);
+    }
+
     @GetMapping
     @Operation(summary = "Получить сессии игры")
     public List<GameSessionResponse> findByGame(
