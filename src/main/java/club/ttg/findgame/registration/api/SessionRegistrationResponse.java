@@ -12,6 +12,7 @@ public record SessionRegistrationResponse(
         UUID sessionId,
         UUID playerId,
         @JsonInclude(JsonInclude.Include.NON_NULL) String characterSheetUrl,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String characterName,
         SessionRegistrationStatus status,
         @JsonInclude(JsonInclude.Include.NON_NULL) SessionAttendanceStatus attendanceStatus,
         boolean paid,

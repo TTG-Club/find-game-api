@@ -320,15 +320,18 @@ Content-Type: application/json
 
 ## Заявки игроков
 
-Авторизованный игрок подаёт заявку на запланированную сессию. Ссылка на лист персонажа
-необязательна; идентификатор игрока берётся из `sub` access-токена.
+Авторизованный игрок подаёт заявку на запланированную сессию. Идентификатор игрока берётся из
+`sub` access-токена. Персонажа он описывает как удобно: ссылкой на лист (`characterSheetUrl` —
+путь от корня сайта или внешний адрес) либо просто именем (`characterName`). Оба поля
+необязательны и независимы — можно указать и то, и другое.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/games/{gameId}/sessions/{sessionId}/registrations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <access-token>" \
   -d '{
-    "characterSheetUrl": "https://ttg.club/characters/strahd-hunter"
+    "characterSheetUrl": "/tools/character-sheet/shared/9d1f1d0e",
+    "characterName": "Тассельхоф Непоседа"
   }'
 ```
 

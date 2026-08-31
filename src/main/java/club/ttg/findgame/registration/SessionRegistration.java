@@ -35,6 +35,13 @@ public class SessionRegistration {
     @Column(name = "character_sheet_url", length = 2048)
     private String characterSheetUrl;
 
+    /**
+     * Имя персонажа. Заполняется, когда игрок не прикладывает лист: ссылка
+     * есть не у всех, а мастеру важно знать, кем к нему собираются играть.
+     */
+    @Column(name = "character_name", length = 100)
+    private String characterName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SessionRegistrationStatus status;

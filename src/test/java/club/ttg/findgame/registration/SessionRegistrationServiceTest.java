@@ -62,7 +62,7 @@ class SessionRegistrationServiceTest {
 
         SessionRegistrationResponse response = service().register(
                 playerId, gameId, sessionId, null,
-                new CreateSessionRegistrationRequest("https://ttg.club/characters/strahd-hunter"));
+                new CreateSessionRegistrationRequest("https://ttg.club/characters/strahd-hunter", null));
 
         assertThat(response.playerId()).isEqualTo(playerId);
         assertThat(response.sessionId()).isEqualTo(sessionId);
@@ -84,7 +84,7 @@ class SessionRegistrationServiceTest {
         when(registrationRepository.existsBySessionIdAndPlayerId(sessionId, playerId)).thenReturn(true);
 
         assertThatThrownBy(() -> service().register(
-                playerId, gameId, sessionId, null, new CreateSessionRegistrationRequest(null)))
+                playerId, gameId, sessionId, null, new CreateSessionRegistrationRequest(null, null)))
                 .isInstanceOf(InvalidSessionRegistrationException.class);
         verify(registrationRepository, never()).saveAndFlush(any());
     }
@@ -104,7 +104,7 @@ class SessionRegistrationServiceTest {
                 .thenThrow(new DataIntegrityViolationException("duplicate"));
 
         assertThatThrownBy(() -> service().register(
-                playerId, gameId, sessionId, null, new CreateSessionRegistrationRequest(null)))
+                playerId, gameId, sessionId, null, new CreateSessionRegistrationRequest(null, null)))
                 .isInstanceOf(InvalidSessionRegistrationException.class)
                 .hasMessageContaining("уже подал заявку");
     }

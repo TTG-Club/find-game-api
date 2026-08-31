@@ -1,5 +1,6 @@
 package club.ttg.findgame.game.api;
 
+import club.ttg.findgame.common.SiteUrl;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameSystem;
@@ -24,7 +25,7 @@ public record CreateGameRequest(
         @NotNull
         GameSystem system,
 
-        @Pattern(regexp = GameImageUrl.PATTERN, message = GameImageUrl.MESSAGE)
+        @Pattern(regexp = SiteUrl.PATTERN, message = SiteUrl.MESSAGE)
         @Size(max = 2048)
         @Schema(example = "/s3/games/curse-of-strahd.webp")
         String imageUrl,

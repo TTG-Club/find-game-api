@@ -1,4 +1,11 @@
-package club.ttg.findgame.game;
+package club.ttg.findgame.common;
+
+import club.ttg.findgame.game.GameCostType;
+import club.ttg.findgame.game.GameDurationType;
+import club.ttg.findgame.game.GameSystem;
+import club.ttg.findgame.game.GameType;
+import club.ttg.findgame.game.GameVisibility;
+import club.ttg.findgame.registration.api.CreateSessionRegistrationRequest;
 
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.UpdateGameRequest;
@@ -17,11 +24,12 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Обложка игры приходит из загрузчика сайта относительным путём
- * {@code /s3/<ключ>} — так их хранят все разделы. Проверка на абсолютный URL
- * такие пути отвергала, и сохранить игру с обложкой было нельзя.
+ * Ссылки из интерфейса сайта приходят относительными путями: обложка игры —
+ * {@code /s3/<ключ>}, лист персонажа — {@code /tools/character-sheet/shared/<токен>}.
+ * Проверка на абсолютный URL такие пути отвергала, и ни игру с обложкой, ни
+ * заявку с листом сохранить было нельзя.
  */
-class GameImageUrlValidationTest {
+class SiteUrlValidationTest {
 
     private static ValidatorFactory factory;
     private static Validator validator;
@@ -63,6 +71,26 @@ class GameImageUrlValidationTest {
     void allowsGameWithoutCover() {
         assertThat(imageViolations(create(null))).isEmpty();
         assertThat(imageViolations(update(null))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/tools/character-sheet/shared/9d1f1d0e",
+            "https://ttg.club/tools/character-sheet/shared/9d1f1d0e"
+    })
+    void acceptsCharacterSheetOfSiteAndOutside(String sheetUrl) {
+        assertThat(validator.validateProperty(
+                new CreateSessionRegistrationRequest(sheetUrl, null), "characterSheetUrl"))
+                .isEmpty();
+    }
+
+    @Test
+    void allowsApplicationWithNameInsteadOfSheet() {
+        // Листа на сайте может и не быть: игрок называет персонажа словами.
+        CreateSessionRegistrationRequest request =
+                new CreateSessionRegistrationRequest(null, "Тассельхоф Непоседа");
+
+        assertThat(validator.validate(request)).isEmpty();
     }
 
     private static <T> Set<ConstraintViolation<T>> imageViolations(T request) {
