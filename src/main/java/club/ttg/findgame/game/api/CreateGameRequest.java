@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.hibernate.validator.constraints.URL;
 
@@ -23,7 +24,9 @@ public record CreateGameRequest(
         @NotNull
         GameSystem system,
 
-        @URL @Size(max = 2048)
+        @Pattern(regexp = GameImageUrl.PATTERN, message = GameImageUrl.MESSAGE)
+        @Size(max = 2048)
+        @Schema(example = "/s3/games/curse-of-strahd.webp")
         String imageUrl,
 
         @URL @Size(max = 2048)
