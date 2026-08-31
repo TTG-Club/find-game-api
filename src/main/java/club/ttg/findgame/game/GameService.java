@@ -196,8 +196,8 @@ public class GameService {
     public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter), pageable);
-        Map<UUID, Integer> approved = countApprovedPlayers(games.getContent());
-        return games.map(game -> toPublicResponse(game, approved));
+        Map<UUID, Integer> takenSeats = countTakenSeats(games.getContent());
+        return games.map(game -> toPublicResponse(game, takenSeats));
     }
 
     /**
@@ -212,8 +212,8 @@ public class GameService {
     public Page<GameResponse> findOwn(UUID masterId, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         Page<Game> games = repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable);
-        Map<UUID, Integer> approved = countApprovedPlayers(games.getContent());
-        return games.map(game -> mapper.toResponse(game, approvedOf(approved, game)));
+        Map<UUID, Integer> takenSeats = countTakenSeats(games.getContent());
+        return games.map(game -> mapper.toResponse(game, takenSeatsOf(takenSeats, game)));
     }
 
     @Transactional(readOnly = true)
@@ -245,11 +245,11 @@ public class GameService {
     }
 
     private GameResponse toPublicResponse(Game game) {
-        return toPublicResponse(game, countApprovedPlayers(List.of(game)));
+        return toPublicResponse(game, countTakenSeats(List.of(game)));
     }
 
-    private GameResponse toPublicResponse(Game game, Map<UUID, Integer> approved) {
-        return mapper.toResponse(game, approvedOf(approved, game)).copyWithoutInviteCode();
+    private GameResponse toPublicResponse(Game game, Map<UUID, Integer> takenSeats) {
+        return mapper.toResponse(game, takenSeatsOf(takenSeats, game)).copyWithoutInviteCode();
     }
 
     /**
@@ -257,24 +257,24 @@ public class GameService {
      * ссылку на приватную игру.
      */
     private GameResponse toOwnerResponse(Game game) {
-        return mapper.toResponse(game, approvedOf(countApprovedPlayers(List.of(game)), game));
+        return mapper.toResponse(game, takenSeatsOf(countTakenSeats(List.of(game)), game));
     }
 
-    private static int approvedOf(Map<UUID, Integer> approved, Game game) {
+    private static int takenSeatsOf(Map<UUID, Integer> takenSeats, Game game) {
         // Идентификатор игре присваивается при сохранении, так что до него
         // считать нечего — и искать по пустому ключу тоже.
-        return game.getId() == null ? 0 : approved.getOrDefault(game.getId(), 0);
+        return game.getId() == null ? 0 : takenSeats.getOrDefault(game.getId(), 0);
     }
 
     /**
-     * Сколько игроков уже принято в ближайшую сессию каждой игры.
+     * Сколько мест занято в ближайшей сессии каждой игры.
      *
      * Считается именно ближайшая, а не вся игра: игрок подаёт заявку в
      * конкретную сессию, и занятость мест по всей кампании его бы обманула.
      * Двух запросов на страницу выдачи хватает: сначала предстоящие сессии,
-     * затем принятые заявки по отобранным сессиям.
+     * затем заявки по отобранным сессиям.
      */
-    private Map<UUID, Integer> countApprovedPlayers(Collection<Game> games) {
+    private Map<UUID, Integer> countTakenSeats(Collection<Game> games) {
         List<UUID> gameIds = games.stream().map(Game::getId).filter(Objects::nonNull).toList();
         if (gameIds.isEmpty()) {
             return Map.of();
@@ -292,8 +292,8 @@ public class GameService {
         }
 
         Map<UUID, Integer> playersBySession = registrationRepository
-                .countApprovedPlayersBySession(
-                        List.copyOf(sessionByGame.values()), SessionRegistrationStatus.APPROVED)
+                .countTakenSeatsBySession(
+                        List.copyOf(sessionByGame.values()), SessionRegistrationStatus.REJECTED)
                 .stream()
                 .collect(Collectors.toMap(
                         SessionPlayerCount::getSessionId,

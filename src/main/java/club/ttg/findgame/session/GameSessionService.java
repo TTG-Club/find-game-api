@@ -21,6 +21,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class GameSessionService {
@@ -91,6 +92,63 @@ public class GameSessionService {
     }
 
     /**
+     * Переводит сессию в «идёт». Отсюда открывается чат сессии: до начала
+     * игрокам обсуждать нечего, а набор ещё может смениться.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @param sessionId Сессия.
+     * @return Начатая сессия.
+     */
+    @Transactional
+    public GameSessionResponse start(UUID masterId, UUID gameId, UUID sessionId) {
+        GameSession session = ownSession(masterId, gameId, sessionId);
+        if (session.getStatus() != GameSessionStatus.SCHEDULED) {
+            throw new InvalidGameSessionStateException(
+                    "Начать можно только запланированную сессию");
+        }
+
+        session.setStatus(GameSessionStatus.IN_PROGRESS);
+
+        return toResponse(sessionRepository.save(session), approvedPlayerIds(sessionId));
+    }
+
+    /**
+     * Завершает сессию. Сыграна она или отменена — для набора это одно и то
+     * же: сессия уходит из предстоящих, места в ней больше не занимаются, а
+     * заявки остаются как история. Завершить можно и не начатую: отменённый
+     * набор закрывается тем же действием.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @param sessionId Сессия.
+     * @return Завершённая сессия.
+     */
+    @Transactional
+    public GameSessionResponse complete(UUID masterId, UUID gameId, UUID sessionId) {
+        GameSession session = ownSession(masterId, gameId, sessionId);
+        if (session.getStatus() == GameSessionStatus.COMPLETED) {
+            throw new InvalidGameSessionStateException("Сессия уже завершена");
+        }
+
+        session.setStatus(GameSessionStatus.COMPLETED);
+
+        return toResponse(sessionRepository.save(session), approvedPlayerIds(sessionId));
+    }
+
+    /** Сессия своей игры: чужую мастер не трогает. */
+    private GameSession ownSession(UUID masterId, UUID gameId, UUID sessionId) {
+        Game game = gameRepository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameSessionAccessDeniedException();
+        }
+
+        return sessionRepository.findByIdAndGameId(sessionId, gameId)
+                .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
+    }
+
+    /**
      * Назначает дату сессии, объявленной с открытой датой.
      *
      * Отдельным методом, а не общей правкой сессии: это единственное, что
@@ -119,14 +177,7 @@ public class GameSessionService {
         session.setStartsAt(request.startsAt());
         GameSession saved = sessionRepository.save(session);
 
-        Set<UUID> approvedPlayers = registrationRepository
-                .findAllBySessionIdInAndStatus(
-                        List.of(sessionId), SessionRegistrationStatus.APPROVED)
-                .stream()
-                .map(SessionRegistration::getPlayerId)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-
-        return toResponse(saved, approvedPlayers);
+        return toResponse(saved, approvedPlayerIds(sessionId));
     }
 
     private GameSession copySession(GameSession source, CopyGameSessionRequest request) {
@@ -176,6 +227,16 @@ public class GameSessionService {
                 .map(session -> toResponse(
                         session, approvedPlayers.getOrDefault(session.getId(), Set.of())))
                 .toList();
+    }
+
+    /** Принятые в сессию игроки — их идентификаторы уходят в ответ. */
+    private Set<UUID> approvedPlayerIds(UUID sessionId) {
+        return registrationRepository
+                .findAllBySessionIdInAndStatus(
+                        List.of(sessionId), SessionRegistrationStatus.APPROVED)
+                .stream()
+                .map(SessionRegistration::getPlayerId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private Map<UUID, Set<UUID>> approvedPlayersBySession(List<GameSession> sessions) {

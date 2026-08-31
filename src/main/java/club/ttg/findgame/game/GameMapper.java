@@ -46,8 +46,8 @@ public interface GameMapper {
     void updateEntity(@MappingTarget Game game, UpdateGameRequest request);
 
     /**
-     * Число принятых игроков в самой игре не хранится: оно выводится из заявок,
+     * Число занятых мест в самой игре не хранится: оно выводится из заявок,
      * поэтому приходит отдельным параметром.
      */
-    GameResponse toResponse(Game game, int approvedPlayers);
+    GameResponse toResponse(Game game, int takenSeats);
 }

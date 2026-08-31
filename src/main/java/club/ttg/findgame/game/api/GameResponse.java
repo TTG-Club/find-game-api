@@ -28,10 +28,12 @@ public record GameResponse(
         int playersToStart,
         int maxPlayers,
         /**
-         * Сколько игроков принято в ближайшую предстоящую сессию. Вместе с
-         * {@code maxPlayers} и {@code playersToStart} даёт занятость мест.
+         * Сколько мест занято в ближайшей предстоящей сессии. Место занимает
+         * любая неотклонённая заявка, включая ещё не разобранную мастером.
+         * Вместе с {@code maxPlayers} и {@code playersToStart} даёт занятость
+         * мест для карточки каталога.
          */
-        int approvedPlayers,
+        int takenSeats,
         Integer minAge,
         Integer maxAge,
         int startingLevel,
@@ -53,7 +55,7 @@ public record GameResponse(
     public GameResponse copyWithoutInviteCode() {
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, genre, description, requirements,
-                allowedSources, type, city, playersToStart, maxPlayers, approvedPlayers, minAge, maxAge,
+                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, minAge, maxAge,
                 startingLevel, crossplayAllowed, status, durationType, costType, visibility, null,
                 createdAt, listPositionAt, updatedAt);
     }

@@ -12,6 +12,7 @@ import club.ttg.findgame.game.GameRaiseCooldownException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
 import club.ttg.findgame.session.InvalidGameSessionDateException;
+import club.ttg.findgame.session.InvalidGameSessionStateException;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.registration.InvalidSessionRegistrationException;
 import club.ttg.findgame.registration.SessionRegistrationAccessDeniedException;
@@ -89,6 +90,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidGameSessionDateException.class)
     ProblemDetail handleInvalidSessionDate(InvalidGameSessionDateException exception) {
         return problem(HttpStatus.CONFLICT, "Дату сессии нельзя изменить", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidGameSessionStateException.class)
+    ProblemDetail handleInvalidSessionState(InvalidGameSessionStateException exception) {
+        return problem(HttpStatus.CONFLICT, "Состояние сессии нельзя изменить", exception.getMessage());
     }
 
     @ExceptionHandler(SessionRegistrationNotFoundException.class)

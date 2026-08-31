@@ -208,8 +208,8 @@ class GameServiceTest {
         when(sessionRepository.findUpcoming(
                 eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(upcoming);
-        when(registrationRepository.countApprovedPlayersBySession(
-                List.of(nearestId), SessionRegistrationStatus.APPROVED))
+        when(registrationRepository.countTakenSeatsBySession(
+                List.of(nearestId), SessionRegistrationStatus.REJECTED))
                 .thenReturn(counts);
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
@@ -217,7 +217,7 @@ class GameServiceTest {
         // Считается ближайшая сессия, а не вся игра: заявку игрок подаёт
         // именно в неё. Запрос отдаёт сессии по близости, первая и берётся.
         assertThat(found.getContent()).singleElement()
-                .satisfies(response -> assertThat(response.approvedPlayers()).isEqualTo(2));
+                .satisfies(response -> assertThat(response.takenSeats()).isEqualTo(2));
     }
 
     @SuppressWarnings("unchecked")
@@ -235,7 +235,7 @@ class GameServiceTest {
 
         // Набора ещё нет — мест занято ноль, а не «неизвестно».
         assertThat(found.getContent()).singleElement()
-                .satisfies(response -> assertThat(response.approvedPlayers()).isZero());
+                .satisfies(response -> assertThat(response.takenSeats()).isZero());
     }
 
     @SuppressWarnings("unchecked")
@@ -251,15 +251,42 @@ class GameServiceTest {
         when(sessionRepository.findUpcoming(
                 eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(upcoming);
-        when(registrationRepository.countApprovedPlayersBySession(
-                List.of(nearestId), SessionRegistrationStatus.APPROVED))
+        when(registrationRepository.countTakenSeatsBySession(
+                List.of(nearestId), SessionRegistrationStatus.REJECTED))
                 .thenReturn(List.of());
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
         // Сессии без принятых заявок в групповой выдаче нет вовсе.
         assertThat(found.getContent()).singleElement()
-                .satisfies(response -> assertThat(response.approvedPlayers()).isZero());
+                .satisfies(response -> assertThat(response.takenSeats()).isZero());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void seatIsTakenByAnyApplicationExceptRejected() {
+        Game game = raisableGame(UUID.randomUUID(), Instant.now());
+        game.setId(UUID.randomUUID());
+        GameSession nearest = upcomingSession(game.getId());
+        UUID nearestId = nearest.getId();
+        List<GameSession> upcoming = List.of(nearest);
+        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 3));
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(sessionRepository.findUpcoming(
+                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+                .thenReturn(upcoming);
+        when(registrationRepository.countTakenSeatsBySession(
+                List.of(nearestId), SessionRegistrationStatus.REJECTED))
+                .thenReturn(counts);
+
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+
+        // Пока мастер разбирает заявку, игрок на место уже претендует: считать
+        // место свободным значило бы звать в него второго. Из подсчёта
+        // исключены только отклонённые.
+        assertThat(found.getContent()).singleElement()
+                .satisfies(response -> assertThat(response.takenSeats()).isEqualTo(3));
     }
 
     /** Предстоящая сессия игры — та, из которой берутся занятые места. */

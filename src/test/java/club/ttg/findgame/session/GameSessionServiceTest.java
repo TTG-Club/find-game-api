@@ -322,6 +322,99 @@ class GameSessionServiceTest {
         verify(sessionRepository, never()).save(any());
     }
 
+    @Test
+    void masterStartsScheduledSession() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = new GameSession();
+        session.setStatus(GameSessionStatus.SCHEDULED);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameSessionResponse response = service().start(masterId, gameId, sessionId);
+
+        assertThat(response.status()).isEqualTo(GameSessionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void startedSessionIsNotStartedAgain() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = new GameSession();
+        session.setStatus(GameSessionStatus.IN_PROGRESS);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> service().start(masterId, gameId, sessionId))
+                .isInstanceOf(InvalidGameSessionStateException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void masterCompletesSessionFromAnyLiveState() {
+        for (GameSessionStatus status : List.of(
+                GameSessionStatus.SCHEDULED, GameSessionStatus.IN_PROGRESS)) {
+            UUID masterId = UUID.randomUUID();
+            UUID gameId = UUID.randomUUID();
+            UUID sessionId = UUID.randomUUID();
+            GameSession session = new GameSession();
+            session.setStatus(status);
+            Game game = game(masterId, null);
+            when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+            when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                    .thenReturn(Optional.of(session));
+            when(sessionRepository.save(any(GameSession.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Отменённый набор закрывается тем же действием, что и сыгранная сессия.
+            GameSessionResponse response = service().complete(masterId, gameId, sessionId);
+
+            assertThat(response.status()).isEqualTo(GameSessionStatus.COMPLETED);
+        }
+    }
+
+    @Test
+    void completedSessionIsNotCompletedAgain() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = new GameSession();
+        session.setStatus(GameSessionStatus.COMPLETED);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> service().complete(masterId, gameId, sessionId))
+                .isInstanceOf(InvalidGameSessionStateException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void strangerChangesNoSessionState() {
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = game(UUID.randomUUID(), null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().start(UUID.randomUUID(), gameId, sessionId))
+                .isInstanceOf(GameSessionAccessDeniedException.class);
+        assertThatThrownBy(() -> service().complete(UUID.randomUUID(), gameId, sessionId))
+                .isInstanceOf(GameSessionAccessDeniedException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
     private GameSessionService service() {
         return new GameSessionService(gameRepository, sessionRepository, registrationRepository, mapper);
     }

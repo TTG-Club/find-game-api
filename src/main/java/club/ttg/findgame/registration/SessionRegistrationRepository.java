@@ -33,20 +33,25 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
     );
 
     /**
-     * Сколько игроков принято в каждую из сессий. Считается разом по странице
-     * выдачи: карточка каталога показывает занятые места ближайшей сессии, а
-     * запрос на игру означал бы дюжину запросов на страницу.
+     * Сколько мест занято в каждой из сессий. Место считается занятым уже по
+     * поданной заявке: пока мастер её разбирает, игрок на это место
+     * претендует, и показывать место свободным значило бы звать в него
+     * второго. Отклонённые заявки места не держат.
+     *
+     * Считается разом по странице выдачи: карточка каталога показывает
+     * занятые места ближайшей сессии, а запрос на игру означал бы дюжину
+     * запросов на страницу.
      */
     @Query("""
             select registration.sessionId as sessionId, count(registration) as playerCount
             from SessionRegistration registration
             where registration.sessionId in :sessionIds
-              and registration.status = :status
+              and registration.status <> :excludedStatus
             group by registration.sessionId
             """)
-    List<SessionPlayerCount> countApprovedPlayersBySession(
+    List<SessionPlayerCount> countTakenSeatsBySession(
             @Param("sessionIds") Collection<UUID> sessionIds,
-            @Param("status") SessionRegistrationStatus status
+            @Param("excludedStatus") SessionRegistrationStatus excludedStatus
     );
 
     @Query("""

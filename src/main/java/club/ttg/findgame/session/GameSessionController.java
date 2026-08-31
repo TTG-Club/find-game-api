@@ -73,6 +73,26 @@ public class GameSessionController {
                 UUID.fromString(jwt.getSubject()), gameId, sessionId, request);
     }
 
+    @PatchMapping("/{sessionId}/start")
+    @Operation(summary = "Начать сессию")
+    public GameSessionResponse start(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID sessionId
+    ) {
+        return service.start(UUID.fromString(jwt.getSubject()), gameId, sessionId);
+    }
+
+    @PatchMapping("/{sessionId}/complete")
+    @Operation(summary = "Завершить сессию")
+    public GameSessionResponse complete(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID sessionId
+    ) {
+        return service.complete(UUID.fromString(jwt.getSubject()), gameId, sessionId);
+    }
+
     @GetMapping
     @Operation(summary = "Получить сессии игры")
     public List<GameSessionResponse> findByGame(
