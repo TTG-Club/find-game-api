@@ -49,5 +49,5 @@ public interface GameMapper {
      * Число занятых мест в самой игре не хранится: оно выводится из заявок,
      * поэтому приходит отдельным параметром.
      */
-    GameResponse toResponse(Game game, int takenSeats);
+    GameResponse toResponse(Game game, int takenSeats, int approvedSeats);
 }

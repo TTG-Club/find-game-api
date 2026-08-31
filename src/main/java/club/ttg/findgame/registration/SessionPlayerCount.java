@@ -3,12 +3,16 @@ package club.ttg.findgame.registration;
 import java.util.UUID;
 
 /**
- * Сколько игроков принято в сессию. Проекция группового запроса: в сущностях
- * этого числа нет, оно выводится из заявок.
+ * Занятость мест сессии. Проекция группового запроса: в сущностях этих чисел
+ * нет, они выводятся из заявок.
  */
 public interface SessionPlayerCount {
 
     UUID getSessionId();
 
+    /** Места, занятые любой неотклонённой заявкой. */
     long getPlayerCount();
+
+    /** Из них подтверждённые мастером. */
+    long getApprovedCount();
 }

@@ -33,17 +33,23 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
     );
 
     /**
-     * Сколько мест занято в каждой из сессий. Место считается занятым уже по
-     * поданной заявке: пока мастер её разбирает, игрок на это место
-     * претендует, и показывать место свободным значило бы звать в него
-     * второго. Отклонённые заявки места не держат.
+     * Сколько мест занято в каждой из сессий и сколько из них подтверждено.
+     * Место считается занятым уже по поданной заявке: пока мастер её
+     * разбирает, игрок на это место претендует, и показывать место свободным
+     * значило бы звать в него второго. Отклонённые заявки места не держат.
+     *
+     * Два числа считаются одним запросом: карточка каталога различает
+     * подтверждённое место и место с неразобранной заявкой.
      *
      * Считается разом по странице выдачи: карточка каталога показывает
      * занятые места ближайшей сессии, а запрос на игру означал бы дюжину
      * запросов на страницу.
      */
     @Query("""
-            select registration.sessionId as sessionId, count(registration) as playerCount
+            select registration.sessionId as sessionId,
+                   count(registration) as playerCount,
+                   sum(case when registration.status = :approvedStatus then 1 else 0 end)
+                       as approvedCount
             from SessionRegistration registration
             where registration.sessionId in :sessionIds
               and registration.status <> :excludedStatus
@@ -51,7 +57,8 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
             """)
     List<SessionPlayerCount> countTakenSeatsBySession(
             @Param("sessionIds") Collection<UUID> sessionIds,
-            @Param("excludedStatus") SessionRegistrationStatus excludedStatus
+            @Param("excludedStatus") SessionRegistrationStatus excludedStatus,
+            @Param("approvedStatus") SessionRegistrationStatus approvedStatus
     );
 
     @Query("""

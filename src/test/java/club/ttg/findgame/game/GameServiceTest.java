@@ -209,7 +209,9 @@ class GameServiceTest {
                 eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(upcoming);
         when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId), SessionRegistrationStatus.REJECTED))
+                List.of(nearestId),
+                SessionRegistrationStatus.REJECTED,
+                SessionRegistrationStatus.APPROVED))
                 .thenReturn(counts);
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
@@ -252,7 +254,9 @@ class GameServiceTest {
                 eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(upcoming);
         when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId), SessionRegistrationStatus.REJECTED))
+                List.of(nearestId),
+                SessionRegistrationStatus.REJECTED,
+                SessionRegistrationStatus.APPROVED))
                 .thenReturn(List.of());
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
@@ -277,7 +281,9 @@ class GameServiceTest {
                 eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(upcoming);
         when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId), SessionRegistrationStatus.REJECTED))
+                List.of(nearestId),
+                SessionRegistrationStatus.REJECTED,
+                SessionRegistrationStatus.APPROVED))
                 .thenReturn(counts);
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
@@ -289,6 +295,37 @@ class GameServiceTest {
                 .satisfies(response -> assertThat(response.takenSeats()).isEqualTo(3));
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void confirmedSeatsAreCountedApartFromPendingOnes() {
+        Game game = raisableGame(UUID.randomUUID(), Instant.now());
+        game.setId(UUID.randomUUID());
+        GameSession nearest = upcomingSession(game.getId());
+        UUID nearestId = nearest.getId();
+        List<GameSession> upcoming = List.of(nearest);
+        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 3, 1));
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(sessionRepository.findUpcoming(
+                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+                .thenReturn(upcoming);
+        when(registrationRepository.countTakenSeatsBySession(
+                List.of(nearestId),
+                SessionRegistrationStatus.REJECTED,
+                SessionRegistrationStatus.APPROVED))
+                .thenReturn(counts);
+
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+
+        // Карточка различает подтверждённое место и место с неразобранной
+        // заявкой, поэтому чисел два.
+        assertThat(found.getContent()).singleElement()
+                .satisfies(response -> {
+                    assertThat(response.takenSeats()).isEqualTo(3);
+                    assertThat(response.approvedSeats()).isEqualTo(1);
+                });
+    }
+
     /** Предстоящая сессия игры — та, из которой берутся занятые места. */
     private static GameSession upcomingSession(UUID gameId) {
         GameSession session = mock(GameSession.class);
@@ -298,8 +335,13 @@ class GameServiceTest {
         return session;
     }
 
-    /** Строка группового подсчёта принятых игроков. */
+    /** Строка группового подсчёта: все занятые места подтверждены. */
     private static SessionPlayerCount playerCount(UUID sessionId, long players) {
+        return playerCount(sessionId, players, players);
+    }
+
+    /** Строка группового подсчёта занятых и подтверждённых мест. */
+    private static SessionPlayerCount playerCount(UUID sessionId, long players, long approved) {
         return new SessionPlayerCount() {
 
             @Override
@@ -310,6 +352,11 @@ class GameServiceTest {
             @Override
             public long getPlayerCount() {
                 return players;
+            }
+
+            @Override
+            public long getApprovedCount() {
+                return approved;
             }
         };
     }

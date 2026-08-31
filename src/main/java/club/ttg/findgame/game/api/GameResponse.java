@@ -34,6 +34,11 @@ public record GameResponse(
          * мест для карточки каталога.
          */
         int takenSeats,
+        /**
+         * Сколько из занятых мест мастер подтвердил. Разница с
+         * {@code takenSeats} — заявки, которые он ещё не разобрал.
+         */
+        int approvedSeats,
         Integer minAge,
         Integer maxAge,
         int startingLevel,
@@ -55,8 +60,8 @@ public record GameResponse(
     public GameResponse copyWithoutInviteCode() {
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, genre, description, requirements,
-                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, minAge, maxAge,
-                startingLevel, crossplayAllowed, status, durationType, costType, visibility, null,
+                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, approvedSeats, minAge,
+                maxAge, startingLevel, crossplayAllowed, status, durationType, costType, visibility, null,
                 createdAt, listPositionAt, updatedAt);
     }
 }

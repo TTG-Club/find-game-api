@@ -196,8 +196,8 @@ public class GameService {
     public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter), pageable);
-        Map<UUID, Integer> takenSeats = countTakenSeats(games.getContent());
-        return games.map(game -> toPublicResponse(game, takenSeats));
+        Map<UUID, Seats> seats = countTakenSeats(games.getContent());
+        return games.map(game -> toPublicResponse(game, seats));
     }
 
     /**
@@ -212,8 +212,8 @@ public class GameService {
     public Page<GameResponse> findOwn(UUID masterId, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         Page<Game> games = repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable);
-        Map<UUID, Integer> takenSeats = countTakenSeats(games.getContent());
-        return games.map(game -> mapper.toResponse(game, takenSeatsOf(takenSeats, game)));
+        Map<UUID, Seats> seats = countTakenSeats(games.getContent());
+        return games.map(game -> toResponse(game, seats));
     }
 
     @Transactional(readOnly = true)
@@ -248,8 +248,8 @@ public class GameService {
         return toPublicResponse(game, countTakenSeats(List.of(game)));
     }
 
-    private GameResponse toPublicResponse(Game game, Map<UUID, Integer> takenSeats) {
-        return mapper.toResponse(game, takenSeatsOf(takenSeats, game)).copyWithoutInviteCode();
+    private GameResponse toPublicResponse(Game game, Map<UUID, Seats> seats) {
+        return toResponse(game, seats).copyWithoutInviteCode();
     }
 
     /**
@@ -257,13 +257,19 @@ public class GameService {
      * ссылку на приватную игру.
      */
     private GameResponse toOwnerResponse(Game game) {
-        return mapper.toResponse(game, takenSeatsOf(countTakenSeats(List.of(game)), game));
+        return toResponse(game, countTakenSeats(List.of(game)));
     }
 
-    private static int takenSeatsOf(Map<UUID, Integer> takenSeats, Game game) {
+    private static Seats seatsOf(Map<UUID, Seats> seats, Game game) {
         // Идентификатор игре присваивается при сохранении, так что до него
         // считать нечего — и искать по пустому ключу тоже.
-        return game.getId() == null ? 0 : takenSeats.getOrDefault(game.getId(), 0);
+        return game.getId() == null ? Seats.EMPTY : seats.getOrDefault(game.getId(), Seats.EMPTY);
+    }
+
+    private GameResponse toResponse(Game game, Map<UUID, Seats> seats) {
+        Seats gameSeats = seatsOf(seats, game);
+
+        return mapper.toResponse(game, gameSeats.taken(), gameSeats.approved());
     }
 
     /**
@@ -274,7 +280,7 @@ public class GameService {
      * Двух запросов на страницу выдачи хватает: сначала предстоящие сессии,
      * затем заявки по отобранным сессиям.
      */
-    private Map<UUID, Integer> countTakenSeats(Collection<Game> games) {
+    private Map<UUID, Seats> countTakenSeats(Collection<Game> games) {
         List<UUID> gameIds = games.stream().map(Game::getId).filter(Objects::nonNull).toList();
         if (gameIds.isEmpty()) {
             return Map.of();
@@ -291,19 +297,29 @@ public class GameService {
             return Map.of();
         }
 
-        Map<UUID, Integer> playersBySession = registrationRepository
+        Map<UUID, Seats> seatsBySession = registrationRepository
                 .countTakenSeatsBySession(
-                        List.copyOf(sessionByGame.values()), SessionRegistrationStatus.REJECTED)
+                        List.copyOf(sessionByGame.values()),
+                        SessionRegistrationStatus.REJECTED,
+                        SessionRegistrationStatus.APPROVED)
                 .stream()
                 .collect(Collectors.toMap(
                         SessionPlayerCount::getSessionId,
-                        count -> Math.toIntExact(count.getPlayerCount())));
+                        count -> new Seats(
+                                Math.toIntExact(count.getPlayerCount()),
+                                Math.toIntExact(count.getApprovedCount()))));
 
-        Map<UUID, Integer> playersByGame = new LinkedHashMap<>();
+        Map<UUID, Seats> seatsByGame = new LinkedHashMap<>();
         sessionByGame.forEach((gameId, sessionId) ->
-                playersByGame.put(gameId, playersBySession.getOrDefault(sessionId, 0)));
+                seatsByGame.put(gameId, seatsBySession.getOrDefault(sessionId, Seats.EMPTY)));
 
-        return playersByGame;
+        return seatsByGame;
+    }
+
+    /** Занятость мест ближайшей сессии: всего занято и из них подтверждено. */
+    private record Seats(int taken, int approved) {
+
+        private static final Seats EMPTY = new Seats(0, 0);
     }
 
     /**
