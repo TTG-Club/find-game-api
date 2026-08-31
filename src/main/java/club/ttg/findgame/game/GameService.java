@@ -4,10 +4,12 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
-import club.ttg.findgame.registration.GamePlayerCount;
+import club.ttg.findgame.registration.SessionPlayerCount;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
+import club.ttg.findgame.session.GameSessionStatus;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -16,8 +18,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.time.Instant;
@@ -257,24 +261,49 @@ public class GameService {
     }
 
     private static int approvedOf(Map<UUID, Integer> approved, Game game) {
-        return approved.getOrDefault(game.getId(), 0);
+        // Идентификатор игре присваивается при сохранении, так что до него
+        // считать нечего — и искать по пустому ключу тоже.
+        return game.getId() == null ? 0 : approved.getOrDefault(game.getId(), 0);
     }
 
     /**
-     * Сколько игроков уже принято в каждую игру. Число выводится из заявок и
-     * считается одним запросом на всю страницу выдачи.
+     * Сколько игроков уже принято в ближайшую сессию каждой игры.
+     *
+     * Считается именно ближайшая, а не вся игра: игрок подаёт заявку в
+     * конкретную сессию, и занятость мест по всей кампании его бы обманула.
+     * Двух запросов на страницу выдачи хватает: сначала предстоящие сессии,
+     * затем принятые заявки по отобранным сессиям.
      */
     private Map<UUID, Integer> countApprovedPlayers(Collection<Game> games) {
-        List<UUID> gameIds = games.stream().map(Game::getId).toList();
+        List<UUID> gameIds = games.stream().map(Game::getId).filter(Objects::nonNull).toList();
         if (gameIds.isEmpty()) {
             return Map.of();
         }
-        return registrationRepository
-                .countApprovedPlayersByGame(gameIds, SessionRegistrationStatus.APPROVED)
+
+        // Запрос отдаёт сессии в порядке близости, поэтому первая встреченная
+        // сессия игры и есть ближайшая.
+        Map<UUID, UUID> sessionByGame = new LinkedHashMap<>();
+        for (GameSession session : sessionRepository.findUpcoming(
+                gameIds, GameSessionStatus.SCHEDULED, Instant.now())) {
+            sessionByGame.putIfAbsent(session.getGameId(), session.getId());
+        }
+        if (sessionByGame.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, Integer> playersBySession = registrationRepository
+                .countApprovedPlayersBySession(
+                        List.copyOf(sessionByGame.values()), SessionRegistrationStatus.APPROVED)
                 .stream()
                 .collect(Collectors.toMap(
-                        GamePlayerCount::getGameId,
+                        SessionPlayerCount::getSessionId,
                         count -> Math.toIntExact(count.getPlayerCount())));
+
+        Map<UUID, Integer> playersByGame = new LinkedHashMap<>();
+        sessionByGame.forEach((gameId, sessionId) ->
+                playersByGame.put(gameId, playersBySession.getOrDefault(sessionId, 0)));
+
+        return playersByGame;
     }
 
     /**

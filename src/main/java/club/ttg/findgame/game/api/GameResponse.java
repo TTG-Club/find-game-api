@@ -27,6 +27,10 @@ public record GameResponse(
         String city,
         int playersToStart,
         int maxPlayers,
+        /**
+         * Сколько игроков принято в ближайшую предстоящую сессию. Вместе с
+         * {@code maxPlayers} и {@code playersToStart} даёт занятость мест.
+         */
         int approvedPlayers,
         Integer minAge,
         Integer maxAge,

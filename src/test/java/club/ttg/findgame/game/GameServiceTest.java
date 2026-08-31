@@ -4,10 +4,11 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
-import club.ttg.findgame.registration.GamePlayerCount;
+import club.ttg.findgame.registration.SessionPlayerCount;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationStatus;
 import club.ttg.findgame.session.GameSession;
+import club.ttg.findgame.session.GameSessionStatus;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.junit.jupiter.api.Test;
@@ -194,48 +195,89 @@ class GameServiceTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void searchResultsCarryApprovedPlayerCount() {
+    void searchResultsCarrySeatsTakenInNearestSession() {
         Game game = raisableGame(UUID.randomUUID(), Instant.now());
         game.setId(UUID.randomUUID());
+        GameSession nearest = upcomingSession(game.getId());
+        GameSession later = upcomingSession(game.getId());
+        UUID nearestId = nearest.getId();
+        List<GameSession> upcoming = List.of(nearest, later);
+        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 2));
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game)));
-        when(registrationRepository.countApprovedPlayersByGame(
-                List.of(game.getId()), SessionRegistrationStatus.APPROVED))
-                .thenReturn(List.of(playerCount(game.getId(), 2)));
+        when(sessionRepository.findUpcoming(
+                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+                .thenReturn(upcoming);
+        when(registrationRepository.countApprovedPlayersBySession(
+                List.of(nearestId), SessionRegistrationStatus.APPROVED))
+                .thenReturn(counts);
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
-        // Число занятых мест в игре не хранится: карточка каталога получает
-        // его посчитанным по принятым заявкам.
+        // Считается ближайшая сессия, а не вся игра: заявку игрок подаёт
+        // именно в неё. Запрос отдаёт сессии по близости, первая и берётся.
         assertThat(found.getContent()).singleElement()
                 .satisfies(response -> assertThat(response.approvedPlayers()).isEqualTo(2));
     }
 
     @SuppressWarnings("unchecked")
     @Test
-    void gameWithoutApprovedPlayersReportsZeroSeatsTaken() {
+    void gameWithoutUpcomingSessionsReportsZeroSeatsTaken() {
         Game game = raisableGame(UUID.randomUUID(), Instant.now());
         game.setId(UUID.randomUUID());
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game)));
-        when(registrationRepository.countApprovedPlayersByGame(
-                List.of(game.getId()), SessionRegistrationStatus.APPROVED))
+        when(sessionRepository.findUpcoming(
+                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(List.of());
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
-        // Игры без заявок в групповой выдаче нет вовсе — это ноль, а не пропуск.
+        // Набора ещё нет — мест занято ноль, а не «неизвестно».
         assertThat(found.getContent()).singleElement()
                 .satisfies(response -> assertThat(response.approvedPlayers()).isZero());
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void sessionWithoutRegistrationsReportsZeroSeatsTaken() {
+        Game game = raisableGame(UUID.randomUUID(), Instant.now());
+        game.setId(UUID.randomUUID());
+        GameSession nearest = upcomingSession(game.getId());
+        UUID nearestId = nearest.getId();
+        List<GameSession> upcoming = List.of(nearest);
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(sessionRepository.findUpcoming(
+                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+                .thenReturn(upcoming);
+        when(registrationRepository.countApprovedPlayersBySession(
+                List.of(nearestId), SessionRegistrationStatus.APPROVED))
+                .thenReturn(List.of());
+
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+
+        // Сессии без принятых заявок в групповой выдаче нет вовсе.
+        assertThat(found.getContent()).singleElement()
+                .satisfies(response -> assertThat(response.approvedPlayers()).isZero());
+    }
+
+    /** Предстоящая сессия игры — та, из которой берутся занятые места. */
+    private static GameSession upcomingSession(UUID gameId) {
+        GameSession session = mock(GameSession.class);
+        lenient().when(session.getId()).thenReturn(UUID.randomUUID());
+        lenient().when(session.getGameId()).thenReturn(gameId);
+
+        return session;
+    }
+
     /** Строка группового подсчёта принятых игроков. */
-    private static GamePlayerCount playerCount(UUID gameId, long players) {
-        return new GamePlayerCount() {
+    private static SessionPlayerCount playerCount(UUID sessionId, long players) {
+        return new SessionPlayerCount() {
 
             @Override
-            public UUID getGameId() {
-                return gameId;
+            public UUID getSessionId() {
+                return sessionId;
             }
 
             @Override
