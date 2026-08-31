@@ -29,6 +29,19 @@ subscriber-service:
   connect-timeout: ${SUBSCRIBER_SERVICE_CONNECT_TIMEOUT:2s}
   read-timeout: ${SUBSCRIBER_SERVICE_READ_TIMEOUT:3s}
 
+server:
+  # Resolve client addresses only through explicitly trusted proxies. Never trust arbitrary XFF.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: ${RATE_LIMIT_TRUSTED_PROXIES:(?!)}
+
+rate-limit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  requests: ${RATE_LIMIT_REQUESTS:75}
+  interval: ${RATE_LIMIT_INTERVAL:1m}
+  max-clients: ${RATE_LIMIT_MAX_CLIENTS:100000}
+
 internal:
   service-secret: ${INTERNAL_SERVICE_SECRET:}
 

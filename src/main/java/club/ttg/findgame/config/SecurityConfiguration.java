@@ -1,5 +1,6 @@
 package club.ttg.findgame.config;
 
+import club.ttg.findgame.security.RateLimitFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +33,7 @@ import java.util.UUID;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties(InternalServiceProperties.class)
+@EnableConfigurationProperties({InternalServiceProperties.class, RateLimitProperties.class})
 public class SecurityConfiguration {
 
     private static final String[] PUBLIC_PATHS = {
@@ -50,6 +51,11 @@ public class SecurityConfiguration {
     private static final String[] INTERNAL_PATHS = {"/api/v1/internal", "/api/v1/internal/**"};
 
     private static final int MIN_SECRET_LENGTH_BYTES = 32;
+
+    @Bean
+    RateLimitFilter rateLimitFilter(RateLimitProperties properties) {
+        return new RateLimitFilter(properties);
+    }
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
