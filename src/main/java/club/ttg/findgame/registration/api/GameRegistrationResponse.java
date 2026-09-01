@@ -13,6 +13,7 @@ public record GameRegistrationResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) String characterSheetUrl,
         @JsonInclude(JsonInclude.Include.NON_NULL) String characterName,
         RegistrationStatus status,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String rejectionReason,
         Instant createdAt,
         Instant updatedAt
 ) {

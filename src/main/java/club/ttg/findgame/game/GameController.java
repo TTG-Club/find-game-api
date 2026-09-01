@@ -95,12 +95,15 @@ public class GameController {
     }
 
     @GetMapping("/{gameId}")
-    @Operation(summary = "Получить публичную игру или приватную игру по коду приглашения")
+    @Operation(summary = "Получить публичную игру, свою игру или приватную игру по коду приглашения")
     public GameResponse get(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
             @RequestParam(required = false) UUID inviteCode
     ) {
-        return service.get(gameId, inviteCode);
+        UUID requesterId = jwt == null ? null : UUID.fromString(jwt.getSubject());
+
+        return service.get(requesterId, gameId, inviteCode);
     }
 
     @PutMapping("/{gameId}")
@@ -111,7 +114,11 @@ public class GameController {
             @PathVariable UUID gameId,
             @Valid @RequestBody UpdateGameRequest request
     ) {
-        return service.update(UUID.fromString(jwt.getSubject()), gameId, request);
+        return service.update(
+                UUID.fromString(jwt.getSubject()),
+                jwt.getClaimAsString("username"),
+                gameId,
+                request);
     }
 
     @PatchMapping("/{gameId}/close")

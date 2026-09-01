@@ -9,6 +9,9 @@ public enum NotificationType {
     /** Мастер принял заявку игрока. */
     REGISTRATION_APPROVED,
 
+    /** Мастер назначил дату сессии, объявленной с открытой датой. */
+    SESSION_SCHEDULED,
+
     /** Сессия началась. */
     SESSION_STARTED,
 

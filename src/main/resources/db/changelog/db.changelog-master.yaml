@@ -61,3 +61,5 @@ databaseChangeLog:
       file: db/changelog/changes/030-add-private-chat.sql
   - include:
       file: db/changelog/changes/031-move-registrations-to-game.sql
+  - include:
+      file: db/changelog/changes/032-add-registration-rejection-reason.sql

@@ -31,6 +31,13 @@ import java.time.Duration;
 @Service
 public class GameService {
 
+    /**
+     * Сколько игроков помещается за столом. Подписка расширяет предел: без неё
+     * это обычная компания, с ней — большой стол или несколько групп.
+     */
+    private static final int FREE_MAX_PLAYERS = 5;
+    private static final int SUBSCRIBER_MAX_PLAYERS = 15;
+
     private static final Duration FREE_RAISE_INTERVAL = Duration.ofDays(1);
     private static final Duration SUBSCRIBER_RAISE_INTERVAL = Duration.ofHours(1);
 
@@ -65,6 +72,7 @@ public class GameService {
             throw new InvalidPlayerCountException();
         }
         validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
+        enforceMaxPlayersLimit(username, request.maxPlayers());
         enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
@@ -94,7 +102,12 @@ public class GameService {
      * приватную игру и снимается при возврате в публичную.
      */
     @Transactional
-    public GameResponse update(UUID masterId, UUID gameId, UpdateGameRequest request) {
+    public GameResponse update(
+            UUID masterId,
+            String username,
+            UUID gameId,
+            UpdateGameRequest request
+    ) {
         Game game = repository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         if (!game.getMasterId().equals(masterId)) {
@@ -104,6 +117,7 @@ public class GameService {
             throw new InvalidPlayerCountException();
         }
         validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
+        enforceMaxPlayersLimit(username, request.maxPlayers());
         validateCostTypeChange(game, request.costType());
         validateMaxPlayersChange(gameId, request.maxPlayers());
 
@@ -218,28 +232,53 @@ public class GameService {
     }
 
     /**
-     * Игры мастера-владельца: и публичные, и приватные, в любом статусе.
-     * Публичный поиск заменить эту выдачу не может — приватные игры в него не
-     * попадают, а закрытые мастеру всё равно нужно видеть.
+     * Игры пользователя: свои как мастер и те, куда он подал заявку или
+     * принят игроком. Публичный поиск эту выдачу не заменяет — приватные игры
+     * в него не попадают, а закрытые всё равно нужно видеть.
      *
-     * В отличие от публичных ответов {@code inviteCode} здесь не вырезается:
-     * без него владелец не соберёт ссылку-приглашение на свою приватную игру.
+     * Код приглашения уходит только владельцу: игроку чужой приватной игры он
+     * дал бы право звать в неё кого угодно.
      */
     @Transactional(readOnly = true)
-    public Page<GameResponse> findOwn(UUID masterId, int page, int size) {
+    public Page<GameResponse> findOwn(UUID userId, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
-        Page<Game> games = repository.findAllByMasterIdAndDeletedAtIsNull(masterId, pageable);
+        Page<Game> games = repository.findAllOwnOrJoined(userId, pageable);
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
-        return games.map(game -> toResponse(game, seats));
+
+        return games.map(game -> game.getMasterId().equals(userId)
+                ? toResponse(game, seats)
+                : toPublicResponse(game, seats));
     }
 
+    /**
+     * Страница игры.
+     *
+     * Владелец открывает свою игру всегда: приватную он и создал, кода
+     * приглашения у себя в адресной строке у него нет, и требовать его от
+     * автора — значит запирать мастера снаружи собственной игры. Ему же
+     * уходит код приглашения: без него ссылку для игроков не собрать.
+     *
+     * @param requesterId Пользователь из токена; {@code null} — аноним.
+     * @param gameId Игра.
+     * @param inviteCode Код приглашения из адреса страницы.
+     * @return Игра глазами запросившего.
+     */
     @Transactional(readOnly = true)
-    public GameResponse get(UUID gameId, UUID inviteCode) {
-        Game game = inviteCode == null
-                ? repository.findByIdAndVisibilityAndDeletedAtIsNull(gameId, GameVisibility.PUBLIC)
-                    .orElseThrow(() -> new GameNotFoundException(gameId))
-                : repository.findByIdAndInviteCodeAndDeletedAtIsNull(gameId, inviteCode)
-                    .orElseThrow(() -> new GameNotFoundException(gameId));
+    public GameResponse get(UUID requesterId, UUID gameId, UUID inviteCode) {
+        Game game = repository.findByIdAndDeletedAtIsNull(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+
+        if (requesterId != null && game.getMasterId().equals(requesterId)) {
+            return toOwnerResponse(game);
+        }
+
+        boolean visible = game.getVisibility() == GameVisibility.PUBLIC
+                || (inviteCode != null && inviteCode.equals(game.getInviteCode()));
+
+        if (!visible) {
+            throw new GameNotFoundException(gameId);
+        }
+
         return toPublicResponse(game);
     }
 
@@ -330,6 +369,23 @@ public class GameService {
         }
         if (minAge != null && maxAge != null && minAge > maxAge) {
             throw new InvalidGameDetailsException("Минимальный возраст не может превышать максимальный");
+        }
+    }
+
+    /**
+     * Предел стола: без подписки за ним помещается меньше игроков.
+     *
+     * Проверяется и при создании, и при правке — иначе игру заводили бы на
+     * пятерых, а сразу после сохранения расширяли до пятнадцати.
+     */
+    private void enforceMaxPlayersLimit(String username, int maxPlayers) {
+        int limit = hasActiveSubscription(username)
+                ? SUBSCRIBER_MAX_PLAYERS
+                : FREE_MAX_PLAYERS;
+
+        if (maxPlayers > limit) {
+            throw new InvalidPlayerCountException(
+                    "Больше %d игроков в игре не бывает".formatted(limit));
         }
     }
 

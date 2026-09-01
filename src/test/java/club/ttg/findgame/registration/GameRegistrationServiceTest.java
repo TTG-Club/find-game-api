@@ -132,7 +132,7 @@ class GameRegistrationServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service().review(masterId, gameId, registration.getId(),
-                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE));
+                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE, null));
 
         // Заявка подаётся в игру, поэтому принятый сразу попадает в её
         // запланированные встречи. Сыгранные состав задним числом не меняют.
@@ -163,7 +163,7 @@ class GameRegistrationServiceTest {
                 .thenReturn(3L);
 
         assertThatThrownBy(() -> service().review(masterId, gameId, registration.getId(),
-                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE)))
+                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE, null)))
                 .isInstanceOf(InvalidSessionRegistrationException.class);
 
         verify(participantRepository, never()).saveAll(any());
@@ -191,12 +191,65 @@ class GameRegistrationServiceTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         service().review(masterId, gameId, registration.getId(),
-                new ReviewGameRegistrationRequest(RegistrationDecision.REJECT));
+                new ReviewGameRegistrationRequest(RegistrationDecision.REJECT, null));
 
         // Исключение убирает игрока из незакрытых встреч; в сыгранных и
         // отменённых его участие остаётся историей.
         verify(participantRepository).deleteBySessionIdInAndPlayerId(
                 List.of(scheduledId, inProgressId), playerId);
+    }
+
+    @Test
+    void rejectionKeepsMasterReasonAndApprovalClearsIt() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(masterId, gameId);
+        GameRegistration registration = registration(gameId, playerId, RegistrationStatus.PENDING);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(game.getMaxPlayers()).thenReturn(5);
+        when(registrationRepository.findByIdAndGameId(registration.getId(), gameId))
+                .thenReturn(Optional.of(registration));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(List.of());
+        when(registrationRepository.save(any(GameRegistration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameRegistrationService service = service();
+
+        GameRegistrationResponse rejected = service.review(masterId, gameId, registration.getId(),
+                new ReviewGameRegistrationRequest(RegistrationDecision.REJECT, "  Состав собран  "));
+
+        // Причина обрезается по краям: игроку показывают текст, а не отступы.
+        assertThat(rejected.rejectionReason()).isEqualTo("Состав собран");
+
+        when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(0L);
+
+        GameRegistrationResponse approved = service.review(masterId, gameId, registration.getId(),
+                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE, null));
+
+        // Прежний отказ снят — причина к принятой заявке уже не относится.
+        assertThat(approved.rejectionReason()).isNull();
+    }
+
+    @Test
+    void blankRejectionReasonIsStoredAsNoReason() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(masterId, gameId);
+        GameRegistration registration =
+                registration(gameId, UUID.randomUUID(), RegistrationStatus.PENDING);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByIdAndGameId(registration.getId(), gameId))
+                .thenReturn(Optional.of(registration));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(List.of());
+        when(registrationRepository.save(any(GameRegistration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameRegistrationResponse rejected = service().review(masterId, gameId, registration.getId(),
+                new ReviewGameRegistrationRequest(RegistrationDecision.REJECT, "   "));
+
+        assertThat(rejected.rejectionReason()).isNull();
     }
 
     @Test
@@ -236,7 +289,7 @@ class GameRegistrationServiceTest {
 
         assertThatThrownBy(() -> service().review(
                 UUID.randomUUID(), gameId, UUID.randomUUID(),
-                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE)))
+                new ReviewGameRegistrationRequest(RegistrationDecision.APPROVE, null)))
                 .isInstanceOf(SessionRegistrationAccessDeniedException.class);
 
         verify(registrationRepository, never()).save(any());

@@ -19,6 +19,24 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
 
     Page<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId, Pageable pageable);
 
+    /**
+     * Игры, к которым пользователь причастен: свои как мастер и те, куда он
+     * подал заявку или принят игроком.
+     *
+     * Отклонённая заявка причастности не даёт: игра, куда не взяли, в личном
+     * списке только мешает.
+     */
+    @Query("""
+            SELECT g FROM Game g
+            WHERE g.deletedAt IS NULL
+              AND (g.masterId = :userId
+                   OR EXISTS (SELECT 1 FROM GameRegistration r
+                              WHERE r.gameId = g.id
+                                AND r.playerId = :userId
+                                AND r.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED))
+            """)
+    Page<Game> findAllOwnOrJoined(@Param("userId") UUID userId, Pageable pageable);
+
     Optional<Game> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, GameVisibility visibility);
 
     Optional<Game> findByIdAndInviteCodeAndDeletedAtIsNull(UUID id, UUID inviteCode);

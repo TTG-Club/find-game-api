@@ -96,6 +96,41 @@ class GameServiceTest {
     }
 
     @Test
+    void freeMasterDoesNotSeatMoreThanFivePlayers() {
+        GameService service = service();
+
+        assertThatThrownBy(() -> service.create(
+                UUID.randomUUID(), "game-master", request(3, 6, GameVisibility.PUBLIC)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        verify(repository, never()).save(any(Game.class));
+    }
+
+    @Test
+    void subscriberSeatsUpToFifteenPlayers() {
+        GameService service = service();
+        when(subscriptionStatusClient.status("game-master")).thenReturn(
+                Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service.create(
+                UUID.randomUUID(), "game-master", request(3, 15, GameVisibility.PUBLIC));
+
+        assertThat(response.maxPlayers()).isEqualTo(15);
+    }
+
+    @Test
+    void subscriberStillDoesNotSeatMoreThanFifteenPlayers() {
+        GameService service = service();
+        when(subscriptionStatusClient.status("game-master")).thenReturn(
+                Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
+
+        assertThatThrownBy(() -> service.create(
+                UUID.randomUUID(), "game-master", request(3, 16, GameVisibility.PUBLIC)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+    }
+
+    @Test
     void rejectsPlayersToStartGreaterThanMaximum() {
         GameService service = service();
 

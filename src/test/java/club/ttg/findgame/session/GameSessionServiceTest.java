@@ -12,6 +12,7 @@ import club.ttg.findgame.registration.SessionRegistration;
 import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.registration.SessionAttendanceStatus;
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
+import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
 import club.ttg.findgame.session.api.ScheduleGameSessionRequest;
@@ -23,8 +24,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -487,6 +492,86 @@ class GameSessionServiceTest {
                 .isInstanceOf(GameSessionAccessDeniedException.class);
 
         verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void seriesFillsEveryChosenWeekdayInThePeriod() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.FREE);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(gameRegistrationRepository
+                .findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(List.of());
+
+        // Среды и пятницы промежутка: пятница 2-го, среда 7-го, пятница 9-го.
+        List<GameSessionResponse> created = service().createSeries(masterId, gameId,
+                series(LocalDate.of(2099, 1, 1), LocalDate.of(2099, 1, 11),
+                        Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY)));
+
+        assertThat(created).hasSize(3);
+        assertThat(created.stream().map(GameSessionResponse::startsAt))
+                .containsExactly(
+                        Instant.parse("2099-01-02T16:00:00Z"),
+                        Instant.parse("2099-01-07T16:00:00Z"),
+                        Instant.parse("2099-01-09T16:00:00Z"));
+        assertThat(created).allMatch(session -> session.status() == GameSessionStatus.SCHEDULED);
+    }
+
+    @Test
+    void seriesRefusesPeriodWithoutMatchingWeekday() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.FREE);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        // 5 и 6 января 2099 — понедельник и вторник: сред и пятниц в них нет.
+        assertThatThrownBy(() -> service().createSeries(masterId, gameId,
+                series(LocalDate.of(2099, 1, 5), LocalDate.of(2099, 1, 6),
+                        Set.of(DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY))))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+
+        verify(sessionRepository, never()).save(any(GameSession.class));
+    }
+
+    @Test
+    void seriesRefusesPeriodEndingBeforeItStarts() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.FREE);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().createSeries(masterId, gameId,
+                series(LocalDate.of(2099, 2, 1), LocalDate.of(2099, 1, 1),
+                        Set.of(DayOfWeek.WEDNESDAY))))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+    }
+
+    @Test
+    void strangerDoesNotCreateSeries() {
+        UUID gameId = UUID.randomUUID();
+        Game game = game(UUID.randomUUID(), null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().createSeries(UUID.randomUUID(), gameId,
+                series(LocalDate.of(2099, 1, 1), LocalDate.of(2099, 1, 11),
+                        Set.of(DayOfWeek.WEDNESDAY))))
+                .isInstanceOf(GameSessionAccessDeniedException.class);
+
+        verify(sessionRepository, never()).save(any(GameSession.class));
+    }
+
+    /** Серия бесплатной игры: 19:00 по Москве в выбранные дни недели. */
+    private CreateGameSessionSeriesRequest series(
+            LocalDate startsOn,
+            LocalDate until,
+            Set<DayOfWeek> daysOfWeek
+    ) {
+        return new CreateGameSessionSeriesRequest(
+                "Глава", startsOn, until, daysOfWeek, LocalTime.of(19, 0),
+                "Europe/Moscow", 240, null, null, null);
     }
 
     private GameSessionService service() {

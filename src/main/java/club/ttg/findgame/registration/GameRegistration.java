@@ -51,6 +51,13 @@ public class GameRegistration {
     @Column(nullable = false, length = 20)
     private RegistrationStatus status;
 
+    /**
+     * Причина отказа. Необязательна: мастер вправе не объясняться, но когда
+     * объясняет, игрок это видит — иначе отказ выглядит молчанием.
+     */
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

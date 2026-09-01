@@ -99,7 +99,8 @@ class GameControllerSecurityTest {
         mockMvc.perform(get("/api/v1/games/" + gameId))
                 .andExpect(status().isOk());
 
-        verify(service).get(gameId, null);
+        // Аноним приходит без токена: запросившего нет, кода приглашения тоже.
+        verify(service).get(null, gameId, null);
     }
 
     @Test
@@ -136,7 +137,21 @@ class GameControllerSecurityTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))
                 .andExpect(status().isOk());
 
-        verify(service, never()).get(any(), any());
+        verify(service, never()).get(any(), any(), any());
+    }
+
+    @Test
+    void ownerReadsOwnPrivateGameWithoutInviteCode() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/games/" + gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId)))
+                .andExpect(status().isOk());
+
+        // Владелец узнаётся по токену: кода приглашения у автора своей же
+        // приватной игры в адресной строке нет.
+        verify(service).get(masterId, gameId, null);
     }
 
     @Test
@@ -200,7 +215,7 @@ class GameControllerSecurityTest {
                         .content(validRequest()))
                 .andExpect(status().isUnauthorized());
 
-        verify(service, never()).update(any(), any(), any());
+        verify(service, never()).update(any(), any(), any(), any());
     }
 
     @Test
@@ -215,7 +230,7 @@ class GameControllerSecurityTest {
                 .andExpect(status().isOk());
 
         // Владельца берём только из токена: подменить его телом запроса нельзя.
-        verify(service).update(eq(masterId), eq(gameId), any());
+        verify(service).update(eq(masterId), any(), eq(gameId), any());
     }
 
     @Test
@@ -228,12 +243,12 @@ class GameControllerSecurityTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(service, never()).update(any(), any(), any());
+        verify(service, never()).update(any(), any(), any(), any());
     }
 
     @Test
     void editByStrangerIsForbidden() throws Exception {
-        given(service.update(any(), any(), any()))
+        given(service.update(any(), any(), any(), any()))
                 .willThrow(new GameAccessDeniedException());
 
         mockMvc.perform(put("/api/v1/games/{gameId}", UUID.randomUUID())

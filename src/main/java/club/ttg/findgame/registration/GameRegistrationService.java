@@ -155,7 +155,7 @@ public class GameRegistrationService {
         if (request.decision() == RegistrationDecision.APPROVE) {
             approve(game, registration);
         } else {
-            reject(gameId, registration);
+            reject(gameId, registration, request.reason());
         }
 
         GameRegistration saved = registrationRepository.save(registration);
@@ -231,11 +231,14 @@ public class GameRegistrationService {
         }
 
         registration.setStatus(RegistrationStatus.APPROVED);
+        // Прежний отказ снят — причина к принятой заявке уже не относится.
+        registration.setRejectionReason(null);
         addToScheduledSessions(game.getId(), registration.getPlayerId());
     }
 
-    private void reject(UUID gameId, GameRegistration registration) {
+    private void reject(UUID gameId, GameRegistration registration, String reason) {
         registration.setStatus(RegistrationStatus.REJECTED);
+        registration.setRejectionReason(blankToNull(reason));
 
         List<UUID> openSessions = sessionRepository
                 .findAllByGameIdOrderByStartsAtAsc(gameId).stream()
@@ -265,6 +268,17 @@ public class GameRegistrationService {
         }
     }
 
+    /** Пустая причина — это отсутствие причины, а не пустая строка в базе. */
+    private static String blankToNull(String reason) {
+        if (reason == null) {
+            return null;
+        }
+
+        String trimmed = reason.strip();
+
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     private void requireMaster(Game game, UUID masterId) {
         if (!game.getMasterId().equals(masterId)) {
             throw new SessionRegistrationAccessDeniedException("Это чужая игра");
@@ -289,6 +303,7 @@ public class GameRegistrationService {
                 registration.getCharacterSheetUrl(),
                 registration.getCharacterName(),
                 registration.getStatus(),
+                registration.getRejectionReason(),
                 registration.getCreatedAt(),
                 registration.getUpdatedAt());
     }

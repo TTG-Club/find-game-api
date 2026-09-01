@@ -14,12 +14,18 @@ import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
 import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
+import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
 import club.ttg.findgame.session.api.ScheduleGameSessionRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -38,6 +44,12 @@ public class GameSessionService {
     private final GameSessionMapper mapper;
     private final NotificationService notificationService;
     private final ChatService chatService;
+
+    /**
+     * Предел серии. Расписание на год вперёд — это уже не расписание, а
+     * заявка на сотни встреч, которые никто не отменит вручную.
+     */
+    private static final int MAX_SERIES_SESSIONS = 100;
 
     /** Тексты событий, которые сервис пишет в чат сессии. */
     private static final String SESSION_STARTED_MESSAGE = "Сессия началась";
@@ -70,7 +82,8 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
-        validateCost(game.getCostType(), request);
+        validateCost(game.getCostType(), request.priceAmount(),
+                request.priceCurrency(), request.paymentType());
 
         GameSession session = mapper.toEntity(request);
         session.setGameId(gameId);
@@ -80,6 +93,108 @@ public class GameSessionService {
         // Состав игры въезжает в новую сессию сразу: игрок записывался в игру,
         // и заново подавать заявку на каждую встречу ему не нужно.
         return toResponse(saved, addApprovedPlayers(gameId, saved.getId()));
+    }
+
+    /**
+     * Заводит серию встреч по расписанию.
+     *
+     * Каждая встреча — обычная сессия: серия не заводит своей сущности, иначе
+     * отмена одной встречи тянула бы за собой вопрос, что стало с расписанием.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @param request Расписание серии.
+     * @return Созданные встречи в порядке времени.
+     */
+    @Transactional
+    public List<GameSessionResponse> createSeries(
+            UUID masterId,
+            UUID gameId,
+            CreateGameSessionSeriesRequest request
+    ) {
+        Game game = gameRepository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameSessionAccessDeniedException();
+        }
+
+        validateCost(game.getCostType(), request.priceAmount(),
+                request.priceCurrency(), request.paymentType());
+
+        List<Instant> starts = seriesStarts(request);
+
+        List<GameSessionResponse> created = new ArrayList<>(starts.size());
+
+        for (Instant startsAt : starts) {
+            GameSession session = new GameSession();
+            session.setGameId(gameId);
+            session.setTitle(request.title());
+            session.setStartsAt(startsAt);
+            session.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
+            session.setStatus(GameSessionStatus.SCHEDULED);
+            session.setPriceAmount(request.priceAmount());
+            session.setPriceCurrency(request.priceCurrency());
+            session.setPaymentType(request.paymentType());
+
+            GameSession saved = sessionRepository.save(session);
+
+            created.add(toResponse(saved, addApprovedPlayers(gameId, saved.getId())));
+        }
+
+        return created;
+    }
+
+    /**
+     * Раскладывает расписание серии на моменты начала встреч.
+     *
+     * Прошедшее отбрасывается: серию заводят на будущее, и встреча, начало
+     * которой уже позади, была бы мусором в расписании.
+     */
+    private static List<Instant> seriesStarts(CreateGameSessionSeriesRequest request) {
+        if (request.until().isBefore(request.startsOn())) {
+            throw new InvalidGameSessionDateException(
+                    "Конец серии не может быть раньше её начала");
+        }
+
+        ZoneId zone;
+
+        try {
+            zone = ZoneId.of(request.zoneId());
+        } catch (DateTimeException exception) {
+            throw new InvalidGameSessionDateException("Неизвестный часовой пояс");
+        }
+
+        Instant now = Instant.now();
+        List<Instant> starts = new ArrayList<>();
+
+        for (LocalDate day = request.startsOn();
+                !day.isAfter(request.until());
+                day = day.plusDays(1)) {
+            if (!request.daysOfWeek().contains(day.getDayOfWeek())) {
+                continue;
+            }
+
+            Instant startsAt = day.atTime(request.timeOfDay()).atZone(zone).toInstant();
+
+            if (startsAt.isBefore(now)) {
+                continue;
+            }
+
+            starts.add(startsAt);
+
+            if (starts.size() > MAX_SERIES_SESSIONS) {
+                throw new InvalidGameSessionDateException(
+                        "За раз создаётся не больше " + MAX_SERIES_SESSIONS + " встреч");
+            }
+        }
+
+        if (starts.isEmpty()) {
+            throw new InvalidGameSessionDateException(
+                    "В выбранном промежутке нет ни одного подходящего дня");
+        }
+
+        return starts;
     }
 
     @Transactional
@@ -265,7 +380,14 @@ public class GameSessionService {
         session.setStartsAt(request.startsAt());
         GameSession saved = sessionRepository.save(session);
 
-        return toResponse(saved, approvedPlayerIds(sessionId));
+        Set<UUID> players = approvedPlayerIds(sessionId);
+
+        // Открытая дата закрылась — это та новость, ради которой игрок и
+        // соглашался на набор без времени.
+        notifyPlayers(new OwnedSession(game, saved), masterId, players,
+                NotificationType.SESSION_SCHEDULED);
+
+        return toResponse(saved, players);
     }
 
     private GameSession copySession(GameSession source, CopyGameSessionRequest request) {
@@ -290,10 +412,15 @@ public class GameSessionService {
      * нельзя — сумма без валюты игроку ничего не говорит. У бесплатной игры
      * платных сессий не бывает.
      */
-    private void validateCost(GameCostType costType, CreateGameSessionRequest request) {
-        int filled = (request.priceAmount() != null ? 1 : 0)
-                + (request.priceCurrency() != null ? 1 : 0)
-                + (request.paymentType() != null ? 1 : 0);
+    private void validateCost(
+            GameCostType costType,
+            java.math.BigDecimal priceAmount,
+            String priceCurrency,
+            SessionPaymentType paymentType
+    ) {
+        int filled = (priceAmount != null ? 1 : 0)
+                + (priceCurrency != null ? 1 : 0)
+                + (paymentType != null ? 1 : 0);
         if (costType == GameCostType.FREE && filled > 0) {
             throw new InvalidGameSessionCostException(
                     "Для сессии бесплатной игры сумма, валюта и тип оплаты не указываются");

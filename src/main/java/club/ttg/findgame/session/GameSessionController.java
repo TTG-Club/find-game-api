@@ -1,6 +1,7 @@
 package club.ttg.findgame.session;
 
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
+import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
 import club.ttg.findgame.session.api.ScheduleGameSessionRequest;
@@ -46,6 +47,17 @@ public class GameSessionController {
             @Valid @RequestBody CreateGameSessionRequest request
     ) {
         return service.create(UUID.fromString(jwt.getSubject()), gameId, request);
+    }
+
+    @PostMapping("/series")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Создать серию сессий по расписанию")
+    public List<GameSessionResponse> createSeries(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @Valid @RequestBody CreateGameSessionSeriesRequest request
+    ) {
+        return service.createSeries(UUID.fromString(jwt.getSubject()), gameId, request);
     }
 
     @PostMapping("/{sourceSessionId}/copy")
