@@ -1,6 +1,9 @@
 package club.ttg.findgame.common;
 
 import club.ttg.findgame.chat.ChatAccessDeniedException;
+import club.ttg.findgame.nexus.InvalidNexusException;
+import club.ttg.findgame.nexus.NexusAccessDeniedException;
+import club.ttg.findgame.nexus.NexusNotFoundException;
 import club.ttg.findgame.chat.InvalidChatEventException;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameAccessDeniedException;
@@ -131,6 +134,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidChatEventException.class)
     ProblemDetail handleInvalidChatEvent(InvalidChatEventException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректное событие чата", exception.getMessage());
+    }
+
+    @ExceptionHandler(NexusNotFoundException.class)
+    ProblemDetail handleNexusNotFound(NexusNotFoundException exception) {
+        return problem(HttpStatus.NOT_FOUND, "Нексус не найден", exception.getMessage());
+    }
+
+    @ExceptionHandler(NexusAccessDeniedException.class)
+    ProblemDetail handleNexusAccessDenied(NexusAccessDeniedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Доступ к нексусу запрещён", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidNexusException.class)
+    ProblemDetail handleInvalidNexus(InvalidNexusException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Некорректное действие с нексусом", exception.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
