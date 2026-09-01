@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -229,6 +230,20 @@ public class NexusService {
         return nexusRepository.findById(nexusId)
                 .map(nexus -> allows(nexus, userId))
                 .orElse(false);
+    }
+
+    /**
+     * Комната игры, если она уже заведена.
+     *
+     * Нужна соседним разделам: событие игры пишется в её чат, а до первого
+     * входа комнаты может и не быть.
+     *
+     * @param gameId Игра.
+     * @return Комната игры или пусто.
+     */
+    @Transactional(readOnly = true)
+    public Optional<UUID> findGameNexusId(UUID gameId) {
+        return nexusRepository.findByGameId(gameId).map(Nexus::getId);
     }
 
     private Nexus createForGame(Game game) {

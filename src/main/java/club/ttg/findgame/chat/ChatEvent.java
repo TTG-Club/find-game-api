@@ -28,16 +28,21 @@ public class ChatEvent {
     @Id
     private UUID id;
 
-    @Column(name = "game_id", nullable = false)
+    /** Комната, в которой сказано. */
+    @Column(name = "nexus_id", nullable = false)
+    private UUID nexusId;
+
+    /**
+     * Игра, сессия и собеседник прежней модели чата. Новые события их не
+     * заполняют: чат живёт в комнате. Колонки остались ради истории, которая
+     * в комнату не переехала, — личной переписки мастера с игроком.
+     */
+    @Column(name = "game_id")
     private UUID gameId;
 
     @Column(name = "session_id")
     private UUID sessionId;
 
-    /**
-     * Собеседник мастера в личной переписке. Пусто у общего чата игры и у
-     * чатов сессий.
-     */
     @Column(name = "player_id")
     private UUID playerId;
 

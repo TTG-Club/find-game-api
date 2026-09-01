@@ -37,7 +37,7 @@ class ChatEventBroadcaster {
     }
 
     void broadcast(ChatEventResponse event) {
-        ChatRoom room = new ChatRoom(event.gameId(), event.sessionId(), event.playerId());
+        ChatRoom room = new ChatRoom(event.nexusId());
         subscribers.getOrDefault(room, new CopyOnWriteArrayList<>()).forEach(emitter -> {
             try {
                 emitter.send(SseEmitter.event()

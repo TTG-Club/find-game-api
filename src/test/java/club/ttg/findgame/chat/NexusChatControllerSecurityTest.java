@@ -27,10 +27,10 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(ChatController.class)
+@WebMvcTest(NexusChatController.class)
 @Import({SecurityConfiguration.class, ApiExceptionHandler.class})
-@TestPropertySource(properties = "auth-service.jwt-secret=" + ChatControllerSecurityTest.SECRET)
-class ChatControllerSecurityTest {
+@TestPropertySource(properties = "auth-service.jwt-secret=" + NexusChatControllerSecurityTest.SECRET)
+class NexusChatControllerSecurityTest {
 
     static final String SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -42,7 +42,7 @@ class ChatControllerSecurityTest {
 
     @Test
     void guestCannotSendChatEvent() throws Exception {
-        mockMvc.perform(post("/api/v1/games/{gameId}/chat/events", UUID.randomUUID())
+        mockMvc.perform(post("/api/v1/nexuses/{nexusId}/chat/events", UUID.randomUUID())
                         .contentType("application/json")
                         .content(textRequest()))
                 .andExpect(status().isUnauthorized());
@@ -51,16 +51,16 @@ class ChatControllerSecurityTest {
     @Test
     void authenticatedUserIdComesFromJwtSubject() throws Exception {
         UUID userId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
+        UUID nexusId = UUID.randomUUID();
 
-        mockMvc.perform(post("/api/v1/games/{gameId}/sessions/{sessionId}/chat/events", gameId, sessionId)
+        mockMvc.perform(post("/api/v1/nexuses/{nexusId}/chat/events", nexusId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(userId))
                         .contentType("application/json")
                         .content(textRequest()))
                 .andExpect(status().isCreated());
 
-        verify(service).create(eq(userId), eq(gameId), eq(sessionId), eq(null), any());
+        // Автор берётся из токена, а не из тела: подменить его нельзя.
+        verify(service).create(eq(userId), eq(nexusId), any());
     }
 
     private String textRequest() {

@@ -12,17 +12,7 @@ public interface ChatEventRepository extends JpaRepository<ChatEvent, UUID> {
 
     Optional<ChatEvent> findByAuthorIdAndClientMessageId(UUID authorId, UUID clientMessageId);
 
-    /**
-     * Общий чат игры. Пустой `player_id` обязателен в условии: иначе в общую
-     * ленту попала бы личная переписка мастера с игроками.
-     */
-    List<ChatEvent> findByGameIdAndSessionIdIsNullAndPlayerIdIsNullAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
-            UUID gameId, Instant before, Pageable pageable);
-
-    List<ChatEvent> findByGameIdAndSessionIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
-            UUID gameId, UUID sessionId, Instant before, Pageable pageable);
-
-    /** Личная переписка мастера с одним игроком. */
-    List<ChatEvent> findByGameIdAndPlayerIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
-            UUID gameId, UUID playerId, Instant before, Pageable pageable);
+    /** Лента комнаты: страница истории от курсора назад. */
+    List<ChatEvent> findByNexusIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+            UUID nexusId, Instant before, Pageable pageable);
 }

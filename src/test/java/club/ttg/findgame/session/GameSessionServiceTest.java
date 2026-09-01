@@ -5,6 +5,7 @@ import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.nexus.NexusService;
 import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
@@ -61,6 +62,9 @@ class GameSessionServiceTest {
 
     @Mock
     private ChatService chatService;
+
+    @Mock
+    private NexusService nexusService;
 
     private final GameSessionMapper mapper = Mappers.getMapper(GameSessionMapper.class);
 
@@ -577,7 +581,8 @@ class GameSessionServiceTest {
     private GameSessionService service() {
         return new GameSessionService(
                 gameRepository, sessionRepository, registrationRepository,
-                gameRegistrationRepository, mapper, notificationService, chatService);
+                gameRegistrationRepository, mapper, notificationService, chatService,
+                nexusService);
     }
 
     /** Заявка на сессию бесплатной игры с произвольной датой. */

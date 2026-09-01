@@ -8,6 +8,7 @@ import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.chat.ChatService;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
+import club.ttg.findgame.nexus.NexusService;
 import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
@@ -44,6 +45,7 @@ public class GameSessionService {
     private final GameSessionMapper mapper;
     private final NotificationService notificationService;
     private final ChatService chatService;
+    private final NexusService nexusService;
 
     /**
      * Предел серии. Расписание на год вперёд — это уже не расписание, а
@@ -63,7 +65,8 @@ public class GameSessionService {
             GameRegistrationRepository gameRegistrationRepository,
             GameSessionMapper mapper,
             NotificationService notificationService,
-            ChatService chatService
+            ChatService chatService,
+            NexusService nexusService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
@@ -72,6 +75,7 @@ public class GameSessionService {
         this.mapper = mapper;
         this.notificationService = notificationService;
         this.chatService = chatService;
+        this.nexusService = nexusService;
     }
 
     @Transactional
@@ -253,7 +257,7 @@ public class GameSessionService {
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_STARTED);
-        chatService.publishSystem(gameId, sessionId, masterId, SESSION_STARTED_MESSAGE);
+        publishToNexus(gameId, masterId, SESSION_STARTED_MESSAGE);
 
         return response;
     }
@@ -285,7 +289,7 @@ public class GameSessionService {
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_COMPLETED);
-        chatService.publishSystem(gameId, sessionId, masterId, SESSION_COMPLETED_MESSAGE);
+        publishToNexus(gameId, masterId, SESSION_COMPLETED_MESSAGE);
 
         return response;
     }
@@ -315,7 +319,7 @@ public class GameSessionService {
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_CANCELLED);
-        chatService.publishSystem(gameId, sessionId, masterId, SESSION_CANCELLED_MESSAGE);
+        publishToNexus(gameId, masterId, SESSION_CANCELLED_MESSAGE);
 
         return response;
     }
@@ -332,6 +336,18 @@ public class GameSessionService {
                 .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
 
         return new OwnedSession(game, session);
+    }
+
+    /**
+     * Пишет событие игры в чат её комнаты.
+     *
+     * Комната заводится при первом входе, и до него её может не быть: писать
+     * тогда некуда, а создавать комнату ради системной отметки незачем — тот,
+     * кто в неё зайдёт, увидит уведомление и расписание.
+     */
+    private void publishToNexus(UUID gameId, UUID masterId, String text) {
+        nexusService.findGameNexusId(gameId).ifPresent(nexusId ->
+                chatService.publishSystem(nexusId, masterId, text));
     }
 
     /** Игра и её сессия — нужны вместе, чтобы уведомление знало название. */
