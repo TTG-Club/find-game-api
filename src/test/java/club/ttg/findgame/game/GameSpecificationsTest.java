@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.jpa.domain.Specification;
@@ -35,7 +36,11 @@ class GameSpecificationsTest {
         Predicate notTextType = mock(Predicate.class);
         Predicate minimumAge = mock(Predicate.class);
         Predicate maximumAge = mock(Predicate.class);
+        Predicate freeSeat = mock(Predicate.class);
         Predicate combined = mock(Predicate.class);
+        Subquery takenSeats = mock(Subquery.class);
+        Root registrations = mock(Root.class);
+        Expression takenCount = mock(Expression.class);
 
         when(root.get(any(String.class))).thenReturn(path);
         when(criteriaBuilder.equal(any(Expression.class), eq(GameVisibility.PUBLIC))).thenReturn(publicGame);
@@ -45,6 +50,17 @@ class GameSpecificationsTest {
         when(criteriaBuilder.greaterThanOrEqualTo(any(Expression.class), eq(18))).thenReturn(minimumAge);
         when(criteriaBuilder.lessThanOrEqualTo(any(Expression.class), eq(30))).thenReturn(maximumAge);
         when(criteriaBuilder.and(any(Predicate[].class))).thenReturn(combined);
+        // Свободное место считает подзапрос по заявкам — он тоже должен
+        // попасть в набор условий поиска.
+        when(query.subquery(Long.class)).thenReturn(takenSeats);
+        when(takenSeats.from(any(Class.class))).thenReturn(registrations);
+        when(registrations.get(any(String.class))).thenReturn(path);
+        when(path.as(Long.class)).thenReturn(path);
+        when(criteriaBuilder.count(any(Expression.class))).thenReturn(takenCount);
+        when(takenSeats.select(any(Expression.class))).thenReturn(takenSeats);
+        when(takenSeats.where(any(Predicate.class))).thenReturn(takenSeats);
+        when(criteriaBuilder.lessThan(any(Expression.class), any(Expression.class)))
+                .thenReturn(freeSeat);
 
         GameSearchFilter filter = new GameSearchFilter(
                 null, null, null, Set.of(GameType.TEXT),
@@ -58,6 +74,6 @@ class GameSpecificationsTest {
         verify(criteriaBuilder).and(predicates.capture());
         assertThat(result).isSameAs(combined);
         assertThat(predicates.getValue()).containsExactly(
-                publicGame, notDeleted, notTextType, minimumAge, maximumAge);
+                publicGame, notDeleted, notTextType, minimumAge, maximumAge, freeSeat);
     }
 }
