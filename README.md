@@ -181,6 +181,13 @@ curl -X POST http://localhost:8080/api/v1/games \
 Общий чат игры открыт мастеру и всякому, кто подал в неё заявку и не был отклонён: до решения
 мастера игроку есть о чём с ним говорить. Чат сессии — только мастеру и принятым в неё игрокам.
 
+Третий вид ленты — личная переписка игрока с мастером:
+`/api/v1/games/{gameId}/players/{playerId}/chat/{events|stream}`. Открывается той же заявкой и
+доступна ровно двоим — мастеру и этому игроку; посторонний получает `403` и не узнаёт, что
+переписка есть. Комната адресуется парой «игра + игрок», сессия к ней отношения не имеет.
+
+Свою неразобранную заявку игрок отзывает сам: `DELETE /api/v1/games/{gameId}/registrations/me`.
+
 ## Уведомления
 
 Участники получают уведомления в собственную ленту сервиса: мастеру — о новой заявке в его
@@ -417,85 +424,85 @@ Content-Type: application/json
 получает статус `SCHEDULED`, а присутствие каждого перенесённого игрока — `NOT_ATTENDING`.
 Копирование доступно как для `CAMPAIGN`, так и для `ONE_SHOT`.
 
-## Заявки игроков
+## Заявки в игру
 
-Авторизованный игрок подаёт заявку на запланированную сессию. Идентификатор игрока берётся из
-`sub` access-токена. Персонажа он описывает как удобно: ссылкой на лист (`characterSheetUrl` —
-путь от корня сайта или внешний адрес) либо просто именем (`characterName`). Оба поля
-необязательны и независимы — можно указать и то, и другое.
+Игрок записывается в игру целиком, а не в каждую сессию: принятый входит в состав и попадает во
+все запланированные встречи, включая созданные позже. Идентификатор игрока берётся из `sub`
+access-токена. Персонажа он описывает как удобно: ссылкой на лист (`characterSheetUrl` — путь от
+корня сайта или внешний адрес) либо просто именем (`characterName`). Оба поля необязательны и
+независимы — можно указать и то, и другое.
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/games/{gameId}/sessions/{sessionId}/registrations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access-token>" \
-  -d '{
+curl -X POST http://localhost:8080/api/v1/games/{gameId}/registrations   -H "Content-Type: application/json"   -H "Authorization: Bearer <access-token>"   -d '{
     "characterSheetUrl": "/tools/character-sheet/shared/9d1f1d0e",
     "characterName": "Тассельхоф Непоседа"
   }'
 ```
 
-Для приватной игры используется параметр `?inviteCode={inviteCode}`. Новая заявка получает
-статус `PENDING`. Повторно подать заявку того же игрока на ту же сессию нельзя.
+Для приватной игры используется параметр `?inviteCode={inviteCode}`. Новая заявка получает статус
+`PENDING`. Повторно подать заявку в ту же игру нельзя.
 
-Свою заявку игрок читает отдельным методом:
-
-```text
-GET /api/v1/games/{gameId}/sessions/{sessionId}/registrations/me
-Authorization: Bearer <access-token>
-```
-
-Для приватной игры так же добавляется `?inviteCode={inviteCode}`. Если игрок ещё не подавал
-заявку, ответ — `404`. Метод нужен потому, что список заявок доступен только мастеру, а
-`registeredPlayerIds` сессии содержит лишь принятых игроков: по нему нельзя отличить `PENDING`
-от `REJECTED` и от «заявки не было».
-
-Мастер-владелец получает заявки, включая ссылки на листы персонажей:
+Свою заявку игрок читает отдельным методом — список заявок доступен только мастеру:
 
 ```text
-GET /api/v1/games/{gameId}/sessions/{sessionId}/registrations
+GET /api/v1/games/{gameId}/registrations/me
 ```
 
-Решение по заявке:
+Если заявки не было, ответ — `404`. Свою неразобранную заявку игрок отзывает сам:
+
+```text
+DELETE /api/v1/games/{gameId}/registrations/me
+```
+
+Отозванная заявка удаляется, а не помечается: на отклонённую подать повторно нельзя, а на
+отозванную — можно. Принятую так не отзывают: место согласовано, и об уходе договариваются с
+мастером.
+
+Мастер-владелец получает заявки игры и решает по ним:
 
 ```http
-PATCH /api/v1/games/{gameId}/sessions/{sessionId}/registrations/{registrationId}
+GET /api/v1/games/{gameId}/registrations
+
+PATCH /api/v1/games/{gameId}/registrations/{registrationId}
 Content-Type: application/json
 
 {"decision":"APPROVE"}
 ```
 
-Второе значение решения — `REJECT`. Статус заявки меняется на `APPROVED` или `REJECTED`.
-Только принятые игроки входят в `registeredPlayerIds` сессии; принять игроков сверх
-`maxPlayers` невозможно.
+Второе значение решения — `REJECT`. Принять игроков сверх `maxPlayers` игры невозможно. Принятый
+сразу заводится участником во всех запланированных сессиях; исключённый уходит из всех незакрытых,
+а в сыгранных и отменённых его участие остаётся историей.
 
-После принятия заявки присутствие игрока по умолчанию равно `NOT_ATTENDING` («не буду»).
-Сам игрок может изменить его на `ATTENDING` («буду») и обратно:
+## Участие в сессии
+
+У сессии остаётся только то, что относится к самой встрече, — присутствие и оплата. Состав
+определяет заявка в игру, поэтому принимать и отклонять здесь нечего.
+
+```text
+GET /api/v1/games/{gameId}/sessions/{sessionId}/participants
+GET /api/v1/games/{gameId}/sessions/{sessionId}/participants/me
+```
+
+Присутствие по умолчанию — `NOT_ATTENDING` («не буду»): его подтверждает сам игрок, и молчание
+нельзя считать согласием.
 
 ```http
-PATCH /api/v1/games/{gameId}/sessions/{sessionId}/registrations/me/attendance
-Authorization: Bearer <access-token>
+PATCH /api/v1/games/{gameId}/sessions/{sessionId}/participants/me/attendance
 Content-Type: application/json
 
 {"attendanceStatus":"ATTENDING"}
 ```
 
-До статуса заявки `APPROVED` менять присутствие нельзя. Мастер видит `attendanceStatus`
-в ответах списка заявок.
-
-Для платной игры Мастер может отметить принятого игрока как оплатившего до или после сессии:
+Для платной игры мастер отмечает оплату участника до или после сессии:
 
 ```http
-PATCH /api/v1/games/{gameId}/sessions/{sessionId}/registrations/{registrationId}/payment
-Authorization: Bearer <access-token>
+PATCH /api/v1/games/{gameId}/sessions/{sessionId}/participants/{playerId}/payment
 Content-Type: application/json
 
 {"paid":true}
 ```
 
-В ответе заявки возвращаются `paid` и время `paidAt`. Ограничений по статусу самой сессии нет.
-Повторная отметка сохраняет исходное время оплаты. Для исправления ошибки можно передать
-`{"paid":false}`. В бесплатных играх и для непринятых заявок операция недоступна. При
-копировании сессии отметка оплаты в новую сессию не переносится.
+В ответе возвращаются `paid` и время `paidAt`. Ограничений по статусу самой сессии нет.
 
 ## Чат игры и сессии
 

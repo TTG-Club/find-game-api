@@ -16,6 +16,14 @@ import lombok.Setter;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Участие игрока в сессии.
+ *
+ * Само по себе оно ничего не решает: состав определяет заявка в игру, а эта
+ * запись заводится сервисом для каждого принятого игрока и хранит то, что
+ * относится к конкретной встрече, — присутствие и оплату. Поэтому у неё нет
+ * ни статуса, ни листа персонажа: они принадлежат заявке.
+ */
 @Entity
 @Table(name = "game_session_registrations")
 @Getter
@@ -32,20 +40,6 @@ public class SessionRegistration {
     @Column(name = "player_id", nullable = false)
     private UUID playerId;
 
-    @Column(name = "character_sheet_url", length = 2048)
-    private String characterSheetUrl;
-
-    /**
-     * Имя персонажа. Заполняется, когда игрок не прикладывает лист: ссылка
-     * есть не у всех, а мастеру важно знать, кем к нему собираются играть.
-     */
-    @Column(name = "character_name", length = 100)
-    private String characterName;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private SessionRegistrationStatus status;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "attendance_status", length = 20)
     private SessionAttendanceStatus attendanceStatus;
@@ -59,17 +53,17 @@ public class SessionRegistration {
     @Column(name = "paid_at")
     private Instant paidAt;
 
-    public static SessionRegistration copyApprovedTo(
-            UUID targetSessionId,
-            SessionRegistration source
-    ) {
-        SessionRegistration copy = new SessionRegistration();
-        copy.setSessionId(targetSessionId);
-        copy.setPlayerId(source.getPlayerId());
-        copy.setCharacterSheetUrl(source.getCharacterSheetUrl());
-        copy.setStatus(SessionRegistrationStatus.APPROVED);
-        copy.setAttendanceStatus(SessionAttendanceStatus.NOT_ATTENDING);
-        return copy;
+    /**
+     * Заводит участие игрока в сессии. Присутствие по умолчанию — «не буду»:
+     * его подтверждает сам игрок, и молчание нельзя считать согласием.
+     */
+    public static SessionRegistration of(UUID sessionId, UUID playerId) {
+        SessionRegistration participation = new SessionRegistration();
+        participation.sessionId = sessionId;
+        participation.playerId = playerId;
+        participation.attendanceStatus = SessionAttendanceStatus.NOT_ATTENDING;
+
+        return participation;
     }
 
     @PrePersist
@@ -77,10 +71,13 @@ public class SessionRegistration {
         if (id == null) {
             id = UUID.randomUUID();
         }
+
         Instant now = Instant.now();
+
         if (createdAt == null) {
             createdAt = now;
         }
+
         if (updatedAt == null) {
             updatedAt = now;
         }

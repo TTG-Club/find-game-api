@@ -34,6 +34,13 @@ public class ChatEvent {
     @Column(name = "session_id")
     private UUID sessionId;
 
+    /**
+     * Собеседник мастера в личной переписке. Пусто у общего чата игры и у
+     * чатов сессий.
+     */
+    @Column(name = "player_id")
+    private UUID playerId;
+
     @Column(name = "author_id", nullable = false)
     private UUID authorId;
 

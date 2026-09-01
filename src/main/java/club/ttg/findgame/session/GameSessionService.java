@@ -8,9 +8,11 @@ import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.chat.ChatService;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
+import club.ttg.findgame.registration.GameRegistration;
+import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
@@ -32,6 +34,7 @@ public class GameSessionService {
     private final GameRepository gameRepository;
     private final GameSessionRepository sessionRepository;
     private final SessionRegistrationRepository registrationRepository;
+    private final GameRegistrationRepository gameRegistrationRepository;
     private final GameSessionMapper mapper;
     private final NotificationService notificationService;
     private final ChatService chatService;
@@ -45,6 +48,7 @@ public class GameSessionService {
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
             SessionRegistrationRepository registrationRepository,
+            GameRegistrationRepository gameRegistrationRepository,
             GameSessionMapper mapper,
             NotificationService notificationService,
             ChatService chatService
@@ -52,6 +56,7 @@ public class GameSessionService {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
+        this.gameRegistrationRepository = gameRegistrationRepository;
         this.mapper = mapper;
         this.notificationService = notificationService;
         this.chatService = chatService;
@@ -70,7 +75,11 @@ public class GameSessionService {
         GameSession session = mapper.toEntity(request);
         session.setGameId(gameId);
         session.setStatus(GameSessionStatus.SCHEDULED);
-        return toResponse(sessionRepository.save(session), Set.of());
+        GameSession saved = sessionRepository.save(session);
+
+        // Состав игры въезжает в новую сессию сразу: игрок записывался в игру,
+        // и заново подавать заявку на каждую встречу ему не нужно.
+        return toResponse(saved, addApprovedPlayers(gameId, saved.getId()));
     }
 
     @Transactional
@@ -90,18 +99,18 @@ public class GameSessionService {
         GameSession target = copySession(source, request);
         target = sessionRepository.save(target);
 
-        List<SessionRegistration> approvedRegistrations =
-                registrationRepository.findAllBySessionIdInAndStatus(
-                        List.of(sourceSessionId), SessionRegistrationStatus.APPROVED);
+        // Состав копии — принятые в игру, а не участники исходной сессии:
+        // заявка подаётся в игру, и с прошлой встречи состав мог смениться.
         UUID targetSessionId = target.getId();
-        List<SessionRegistration> copiedRegistrations = approvedRegistrations.stream()
-                .map(registration -> SessionRegistration.copyApprovedTo(targetSessionId, registration))
+        List<UUID> players = gameRegistrationRepository
+                .findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
+                .map(GameRegistration::getPlayerId)
                 .toList();
-        registrationRepository.saveAll(copiedRegistrations);
+        registrationRepository.saveAll(players.stream()
+                .map(playerId -> SessionRegistration.of(targetSessionId, playerId))
+                .toList());
 
-        Set<UUID> copiedPlayerIds = approvedRegistrations.stream()
-                .map(SessionRegistration::getPlayerId)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<UUID> copiedPlayerIds = new LinkedHashSet<>(players);
         return toResponse(target, copiedPlayerIds);
     }
 
@@ -314,12 +323,33 @@ public class GameSessionService {
                 .toList();
     }
 
-    /** Принятые в сессию игроки — их идентификаторы уходят в ответ. */
+/**
+     * Заводит участие принятых в игру игроков в новой сессии.
+     *
+     * @param gameId Игра.
+     * @param sessionId Новая сессия.
+     * @return Идентификаторы добавленных игроков.
+     */
+    private Set<UUID> addApprovedPlayers(UUID gameId, UUID sessionId) {
+        List<UUID> players = gameRegistrationRepository
+                .findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
+                .map(GameRegistration::getPlayerId)
+                .toList();
+
+        if (players.isEmpty()) {
+            return Set.of();
+        }
+
+        registrationRepository.saveAll(players.stream()
+                .map(playerId -> SessionRegistration.of(sessionId, playerId))
+                .toList());
+
+        return new LinkedHashSet<>(players);
+    }
+
+    /** Участники сессии — их идентификаторы уходят в ответ. */
     private Set<UUID> approvedPlayerIds(UUID sessionId) {
-        return registrationRepository
-                .findAllBySessionIdInAndStatus(
-                        List.of(sessionId), SessionRegistrationStatus.APPROVED)
-                .stream()
+        return registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId).stream()
                 .map(SessionRegistration::getPlayerId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
@@ -330,8 +360,7 @@ public class GameSessionService {
         }
         List<UUID> sessionIds = sessions.stream().map(GameSession::getId).toList();
         Map<UUID, Set<UUID>> result = new LinkedHashMap<>();
-        registrationRepository.findAllBySessionIdInAndStatus(
-                        sessionIds, SessionRegistrationStatus.APPROVED)
+        registrationRepository.findAllBySessionIdIn(sessionIds)
                 .forEach(registration -> result
                         .computeIfAbsent(registration.getSessionId(), ignored -> new LinkedHashSet<>())
                         .add(registration.getPlayerId()));

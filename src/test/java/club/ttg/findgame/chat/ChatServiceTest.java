@@ -5,8 +5,9 @@ import club.ttg.findgame.chat.api.DiceRollRequest;
 import club.ttg.findgame.chat.api.SpellCastRequest;
 import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,9 @@ class ChatServiceTest {
     @Mock
     private GameSessionRepository sessionRepository;
     @Mock
-    private SessionRegistrationRepository registrationRepository;
+    private GameRegistrationRepository registrationRepository;
+    @Mock
+    private SessionRegistrationRepository participantRepository;
     @Mock
     private ChatEventBroadcaster broadcaster;
     @Mock
@@ -52,7 +55,7 @@ class ChatServiceTest {
         allowMaster(masterId, gameId);
         saveAssignedEvent();
 
-        var response = service().create(masterId, gameId, null,
+        var response = service().create(masterId, gameId, null, null,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.TEXT, "  Добрый вечер!  ", null, null));
 
         assertThat(response.text()).isEqualTo("Добрый вечер!");
@@ -68,7 +71,7 @@ class ChatServiceTest {
         allowApprovedPlayer(playerId, gameId, sessionId);
         saveAssignedEvent();
 
-        var response = service().create(playerId, gameId, sessionId,
+        var response = service().create(playerId, gameId, sessionId, null,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
                         new DiceRollRequest("2d6+3", "Урон"), null));
 
@@ -83,7 +86,7 @@ class ChatServiceTest {
         UUID gameId = UUID.randomUUID();
         allowMaster(masterId, gameId);
 
-        assertThatThrownBy(() -> service().create(masterId, gameId, null,
+        assertThatThrownBy(() -> service().create(masterId, gameId, null, null,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
                         new DiceRollRequest("2d20kh1", null), null)))
                 .isInstanceOf(InvalidChatEventException.class)
@@ -101,10 +104,10 @@ class ChatServiceTest {
         when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
         when(sessionRepository.findByIdAndGameId(sessionId, gameId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(GameSession.class)));
-        when(registrationRepository.existsBySessionIdAndPlayerIdAndStatus(
-                sessionId, playerId, SessionRegistrationStatus.APPROVED)).thenReturn(false);
+        when(participantRepository.existsBySessionIdAndPlayerId(sessionId, playerId))
+                .thenReturn(false);
 
-        assertThatThrownBy(() -> service().history(playerId, gameId, sessionId, null, null))
+        assertThatThrownBy(() -> service().history(playerId, gameId, sessionId, null, null, null))
                 .isInstanceOf(ChatAccessDeniedException.class);
     }
 
@@ -115,7 +118,7 @@ class ChatServiceTest {
         allowMaster(masterId, gameId);
         saveAssignedEvent();
 
-        var response = service().create(masterId, gameId, null,
+        var response = service().create(masterId, gameId, null, null,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.SPELL_CAST, null, null,
                         new SpellCastRequest("magic-missile", "Волшебная стрела", 1, "Гоблин")));
 
@@ -127,7 +130,56 @@ class ChatServiceTest {
     private ChatService service() {
         return new ChatService(
                 eventRepository, gameRepository, sessionRepository, registrationRepository,
-                broadcaster, eventPublisher, objectMapper);
+                participantRepository, broadcaster, eventPublisher, objectMapper);
+    }
+
+    @Test
+    void masterAndPlayerShareTheirPrivateRoom() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        allowMaster(masterId, gameId);
+        when(registrationRepository.existsByGameIdAndPlayerIdAndStatusNot(
+                gameId, playerId, RegistrationStatus.REJECTED)).thenReturn(true);
+        saveAssignedEvent();
+
+        var response = service().create(playerId, gameId, null, playerId,
+                new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.TEXT, "Возьмёте?", null, null));
+
+        // Личная переписка адресуется парой «игра + игрок», а не сессией.
+        assertThat(response.playerId()).isEqualTo(playerId);
+        assertThat(response.sessionId()).isNull();
+    }
+
+    @Test
+    void outsiderDoesNotEnterPrivateRoom() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        allowMaster(masterId, gameId);
+
+        // В переписке ровно двое: посторонний не должен даже узнать, что она есть.
+        assertThatThrownBy(() -> service().history(
+                UUID.randomUUID(), gameId, null, playerId, null, null))
+                .isInstanceOf(ChatAccessDeniedException.class);
+
+        verify(eventRepository, never())
+                .findByGameIdAndPlayerIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+                        any(), any(), any(), any());
+    }
+
+    @Test
+    void privateRoomNeedsAnApplication() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        allowMaster(masterId, gameId);
+        when(registrationRepository.existsByGameIdAndPlayerIdAndStatusNot(
+                gameId, playerId, RegistrationStatus.REJECTED)).thenReturn(false);
+
+        // Переписка открывается заявкой; отклонённому в ней делать нечего.
+        assertThatThrownBy(() -> service().history(masterId, gameId, null, playerId, null, null))
+                .isInstanceOf(ChatAccessDeniedException.class);
     }
 
     private void allowMaster(UUID masterId, UUID gameId) {
@@ -142,8 +194,8 @@ class ChatServiceTest {
         when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
         when(sessionRepository.findByIdAndGameId(sessionId, gameId))
                 .thenReturn(Optional.of(org.mockito.Mockito.mock(GameSession.class)));
-        when(registrationRepository.existsBySessionIdAndPlayerIdAndStatus(
-                sessionId, playerId, SessionRegistrationStatus.APPROVED)).thenReturn(true);
+        when(participantRepository.existsBySessionIdAndPlayerId(sessionId, playerId))
+                .thenReturn(true);
     }
 
     private void saveAssignedEvent() {

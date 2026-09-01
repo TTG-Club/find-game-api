@@ -7,8 +7,9 @@ import club.ttg.findgame.chat.api.SpellCastRequest;
 import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.session.GameSessionRepository;
 import org.springframework.context.ApplicationEventPublisher;
@@ -41,7 +42,8 @@ public class ChatService {
     private final ChatEventRepository eventRepository;
     private final GameRepository gameRepository;
     private final GameSessionRepository sessionRepository;
-    private final SessionRegistrationRepository registrationRepository;
+    private final GameRegistrationRepository registrationRepository;
+    private final SessionRegistrationRepository participantRepository;
     private final ChatEventBroadcaster broadcaster;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
@@ -51,7 +53,8 @@ public class ChatService {
             ChatEventRepository eventRepository,
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
-            SessionRegistrationRepository registrationRepository,
+            GameRegistrationRepository registrationRepository,
+            SessionRegistrationRepository participantRepository,
             ChatEventBroadcaster broadcaster,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper
@@ -60,6 +63,7 @@ public class ChatService {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
+        this.participantRepository = participantRepository;
         this.broadcaster = broadcaster;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
@@ -70,15 +74,18 @@ public class ChatService {
             UUID requesterId,
             UUID gameId,
             UUID sessionId,
+            UUID playerId,
             CreateChatEventRequest request
     ) {
-        requireAccess(requesterId, gameId, sessionId);
+        requireAccess(requesterId, gameId, sessionId, playerId);
         ChatEventResponse existing = eventRepository
                 .findByAuthorIdAndClientMessageId(requesterId, request.clientMessageId())
                 .map(this::toResponse)
                 .orElse(null);
         if (existing != null) {
-            if (!existing.gameId().equals(gameId) || !java.util.Objects.equals(existing.sessionId(), sessionId)) {
+            if (!existing.gameId().equals(gameId)
+                    || !java.util.Objects.equals(existing.sessionId(), sessionId)
+                    || !java.util.Objects.equals(existing.playerId(), playerId)) {
                 throw new InvalidChatEventException("clientMessageId уже использован в другом чате");
             }
             return existing;
@@ -87,6 +94,7 @@ public class ChatService {
         ChatEvent event = new ChatEvent();
         event.setGameId(gameId);
         event.setSessionId(sessionId);
+        event.setPlayerId(playerId);
         event.setAuthorId(requesterId);
         event.setClientMessageId(request.clientMessageId());
         event.setType(request.type());
@@ -128,37 +136,73 @@ public class ChatService {
             UUID requesterId,
             UUID gameId,
             UUID sessionId,
+            UUID playerId,
             Instant before,
             Integer limit
     ) {
-        requireAccess(requesterId, gameId, sessionId);
+        requireAccess(requesterId, gameId, sessionId, playerId);
         int pageSize = limit == null ? DEFAULT_HISTORY_LIMIT : Math.min(limit, MAX_HISTORY_LIMIT);
         if (pageSize < 1) {
             throw new InvalidChatEventException("limit должен быть от 1 до 100");
         }
         Instant cursor = before == null ? Instant.now().plusSeconds(1) : before;
-        List<ChatEvent> events = sessionId == null
-                ? eventRepository.findByGameIdAndSessionIdIsNullAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
-                        gameId, cursor, PageRequest.of(0, pageSize))
-                : eventRepository.findByGameIdAndSessionIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
-                        gameId, sessionId, cursor, PageRequest.of(0, pageSize));
+        List<ChatEvent> events = historyOf(gameId, sessionId, playerId, cursor, pageSize);
         List<ChatEventResponse> result = new ArrayList<>(events.stream().map(this::toResponse).toList());
         Collections.reverse(result);
         return result;
     }
 
     @Transactional(readOnly = true)
-    public SseEmitter subscribe(UUID requesterId, UUID gameId, UUID sessionId) {
-        requireAccess(requesterId, gameId, sessionId);
-        return broadcaster.subscribe(new ChatRoom(gameId, sessionId));
+    public SseEmitter subscribe(UUID requesterId, UUID gameId, UUID sessionId, UUID playerId) {
+        requireAccess(requesterId, gameId, sessionId, playerId);
+        return broadcaster.subscribe(new ChatRoom(gameId, sessionId, playerId));
     }
 
-    private void requireAccess(UUID requesterId, UUID gameId, UUID sessionId) {
+    /** Страница истории нужной комнаты. */
+    private List<ChatEvent> historyOf(
+            UUID gameId,
+            UUID sessionId,
+            UUID playerId,
+            Instant cursor,
+            int pageSize
+    ) {
+        PageRequest page = PageRequest.of(0, pageSize);
+
+        if (playerId != null) {
+            return eventRepository
+                    .findByGameIdAndPlayerIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+                            gameId, playerId, cursor, page);
+        }
+
+        return sessionId == null
+                ? eventRepository
+                        .findByGameIdAndSessionIdIsNullAndPlayerIdIsNullAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+                                gameId, cursor, page)
+                : eventRepository
+                        .findByGameIdAndSessionIdAndCreatedAtLessThanOrderByCreatedAtDescIdDesc(
+                                gameId, sessionId, cursor, page);
+    }
+
+    private void requireAccess(UUID requesterId, UUID gameId, UUID sessionId, UUID playerId) {
         Game game = gameRepository.findByIdAndDeletedAtIsNull(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         if (sessionId != null && sessionRepository.findByIdAndGameId(sessionId, gameId).isEmpty()) {
             throw new GameSessionNotFoundException(sessionId);
         }
+
+        // Личная переписка мастера с игроком: в ней ровно двое, и посторонний
+        // не должен даже узнать, что она есть.
+        if (playerId != null) {
+            boolean member = game.getMasterId().equals(requesterId)
+                    || playerId.equals(requesterId);
+            if (!member || !registrationRepository.existsByGameIdAndPlayerIdAndStatusNot(
+                    gameId, playerId, RegistrationStatus.REJECTED)) {
+                throw new ChatAccessDeniedException();
+            }
+
+            return;
+        }
+
         if (game.getMasterId().equals(requesterId)) {
             return;
         }
@@ -166,10 +210,9 @@ public class ChatService {
         // игроку есть о чём с ним говорить. Чат сессии — только принятым:
         // там обсуждают саму игру, и состав уже определён.
         boolean allowed = sessionId == null
-                ? registrationRepository.existsApplicantInGame(
-                        gameId, requesterId, SessionRegistrationStatus.REJECTED)
-                : registrationRepository.existsBySessionIdAndPlayerIdAndStatus(
-                        sessionId, requesterId, SessionRegistrationStatus.APPROVED);
+                ? registrationRepository.existsByGameIdAndPlayerIdAndStatusNot(
+                        gameId, requesterId, RegistrationStatus.REJECTED)
+                : participantRepository.existsBySessionIdAndPlayerId(sessionId, requesterId);
         if (!allowed) {
             throw new ChatAccessDeniedException();
         }
@@ -262,7 +305,8 @@ public class ChatService {
 
     private ChatEventResponse toResponse(ChatEvent event) {
         return new ChatEventResponse(
-                event.getId(), event.getGameId(), event.getSessionId(), event.getAuthorId(),
-                event.getClientMessageId(), event.getType(), event.getContent(), event.getPayload(), event.getCreatedAt());
+                event.getId(), event.getGameId(), event.getSessionId(), event.getPlayerId(),
+                event.getAuthorId(), event.getClientMessageId(), event.getType(), event.getContent(),
+                event.getPayload(), event.getCreatedAt());
     }
 }

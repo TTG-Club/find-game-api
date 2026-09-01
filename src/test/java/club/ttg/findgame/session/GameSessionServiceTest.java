@@ -5,9 +5,11 @@ import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.registration.GameRegistration;
+import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.registration.SessionAttendanceStatus;
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
@@ -45,6 +47,9 @@ class GameSessionServiceTest {
 
     @Mock
     private SessionRegistrationRepository registrationRepository;
+
+    @Mock
+    private GameRegistrationRepository gameRegistrationRepository;
 
     @Mock
     private NotificationService notificationService;
@@ -178,8 +183,8 @@ class GameSessionServiceTest {
         when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
         when(session.getId()).thenReturn(sessionId);
         when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(List.of(session));
-        when(registrationRepository.findAllBySessionIdInAndStatus(
-                List.of(sessionId), SessionRegistrationStatus.APPROVED)).thenReturn(List.of(registration));
+        when(registrationRepository.findAllBySessionIdIn(List.of(sessionId)))
+                .thenReturn(List.of(registration));
         when(registration.getSessionId()).thenReturn(sessionId);
         when(registration.getPlayerId()).thenReturn(approvedPlayerId);
 
@@ -189,7 +194,7 @@ class GameSessionServiceTest {
     }
 
     @Test
-    void ownerCopiesCampaignSessionWithApprovedPlayersAndCharacterSheets() {
+    void ownerCopiesCampaignSessionWithApprovedPlayers() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         UUID sourceSessionId = UUID.randomUUID();
@@ -205,9 +210,6 @@ class GameSessionServiceTest {
         source.setPriceAmount(new BigDecimal("20.00"));
         source.setPriceCurrency("EUR");
         source.setPaymentType(SessionPaymentType.POSTPAYMENT);
-        SessionRegistration approved = mock(SessionRegistration.class);
-        when(approved.getPlayerId()).thenReturn(playerId);
-        when(approved.getCharacterSheetUrl()).thenReturn("https://ttg.club/characters/1");
         when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(sessionRepository.findByIdAndGameId(sourceSessionId, gameId)).thenReturn(Optional.of(source));
         when(sessionRepository.save(any(GameSession.class))).thenAnswer(invocation -> {
@@ -215,8 +217,10 @@ class GameSessionServiceTest {
             saved.prePersist();
             return saved;
         });
-        when(registrationRepository.findAllBySessionIdInAndStatus(
-                List.of(sourceSessionId), SessionRegistrationStatus.APPROVED)).thenReturn(List.of(approved));
+        GameRegistration approved = mock(GameRegistration.class);
+        when(approved.getPlayerId()).thenReturn(playerId);
+        when(gameRegistrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(List.of(approved));
         Instant newStart = Instant.parse("2099-01-17T18:00:00Z");
 
         GameSessionResponse response = service().copy(
@@ -237,8 +241,6 @@ class GameSessionServiceTest {
         assertThat(captor.getValue()).singleElement().satisfies(copy -> {
             assertThat(copy.getSessionId()).isEqualTo(response.id());
             assertThat(copy.getPlayerId()).isEqualTo(playerId);
-            assertThat(copy.getCharacterSheetUrl()).isEqualTo("https://ttg.club/characters/1");
-            assertThat(copy.getStatus()).isEqualTo(SessionRegistrationStatus.APPROVED);
             assertThat(copy.getAttendanceStatus()).isEqualTo(SessionAttendanceStatus.NOT_ATTENDING);
             assertThat(copy.getPaidAt()).isNull();
         });
@@ -263,8 +265,8 @@ class GameSessionServiceTest {
             saved.prePersist();
             return saved;
         });
-        when(registrationRepository.findAllBySessionIdInAndStatus(
-                List.of(sourceSessionId), SessionRegistrationStatus.APPROVED)).thenReturn(List.of());
+        when(gameRegistrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(List.of());
 
         GameSessionResponse response = service().copy(
                 masterId,
@@ -489,8 +491,8 @@ class GameSessionServiceTest {
 
     private GameSessionService service() {
         return new GameSessionService(
-                gameRepository, sessionRepository, registrationRepository, mapper,
-                notificationService, chatService);
+                gameRepository, sessionRepository, registrationRepository,
+                gameRegistrationRepository, mapper, notificationService, chatService);
     }
 
     /** Заявка на сессию бесплатной игры с произвольной датой. */

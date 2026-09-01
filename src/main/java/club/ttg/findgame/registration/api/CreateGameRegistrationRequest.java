@@ -6,11 +6,11 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * Заявка игрока. Лист персонажа необязателен, и приложить его можно двумя
- * способами: ссылкой или именем персонажа — у кого-то листа на сайте просто
- * нет. Оба поля независимы: игрок вправе указать и то, и другое.
+ * Заявка игрока в игру. Лист персонажа необязателен, и приложить его можно
+ * двумя способами: ссылкой или именем персонажа — у кого-то листа на сайте
+ * просто нет. Оба поля независимы: игрок вправе указать и то, и другое.
  */
-public record CreateSessionRegistrationRequest(
+public record CreateGameRegistrationRequest(
         @Pattern(regexp = SiteUrl.PATTERN, message = SiteUrl.MESSAGE)
         @Size(max = 2048)
         @Schema(example = "/tools/character-sheet/shared/9d1f1d0e")

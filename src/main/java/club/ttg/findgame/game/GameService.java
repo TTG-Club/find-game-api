@@ -4,9 +4,10 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
-import club.ttg.findgame.registration.SessionPlayerCount;
+import club.ttg.findgame.registration.GameRegistrationRepository;
+import club.ttg.findgame.registration.GameSeatCount;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
@@ -40,7 +41,7 @@ public class GameService {
     // Нужны редактированию: правка не должна расходиться с уже созданными
     // сессиями и принятыми в них игроками.
     private final GameSessionRepository sessionRepository;
-    private final SessionRegistrationRepository registrationRepository;
+    private final GameRegistrationRepository registrationRepository;
 
     public GameService(
             GameRepository repository,
@@ -48,7 +49,7 @@ public class GameService {
             SubscriptionStatusClient subscriptionStatusClient,
             GameCreationLockService creationLockService,
             GameSessionRepository sessionRepository,
-            SessionRegistrationRepository registrationRepository
+            GameRegistrationRepository registrationRepository
     ) {
         this.repository = repository;
         this.mapper = mapper;
@@ -128,18 +129,16 @@ public class GameService {
     }
 
     /**
-     * Максимум игроков не опускается ниже уже принятых: сервис не даёт принять
-     * игроков сверх лимита, и созданный правкой перебор чинить было бы нечем.
+     * Максимум игроков не опускается ниже уже принятых в игру: сервис не даёт
+     * принять игроков сверх лимита, и созданный правкой перебор чинить было бы
+     * нечем.
      */
     private void validateMaxPlayersChange(UUID gameId, int requestedMaxPlayers) {
-        long approved = sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId).stream()
-                .mapToLong(session -> registrationRepository.countBySessionIdAndStatus(
-                        session.getId(), SessionRegistrationStatus.APPROVED))
-                .max()
-                .orElse(0L);
+        long approved = registrationRepository.countByGameIdAndStatus(
+                gameId, RegistrationStatus.APPROVED);
         if (approved > requestedMaxPlayers) {
             throw new InvalidPlayerCountException(
-                    "В сессию уже принято %d игроков — максимум не может быть меньше".formatted(approved));
+                    "В игру уже принято %d игроков — максимум не может быть меньше".formatted(approved));
         }
     }
 
@@ -291,12 +290,9 @@ public class GameService {
     }
 
     /**
-     * Сколько мест занято в ближайшей сессии каждой игры.
-     *
-     * Считается именно ближайшая, а не вся игра: игрок подаёт заявку в
-     * конкретную сессию, и занятость мест по всей кампании его бы обманула.
-     * Двух запросов на страницу выдачи хватает: сначала предстоящие сессии,
-     * затем заявки по отобранным сессиям.
+     * Сколько мест занято в каждой игре. Игрок записывается в игру целиком,
+     * поэтому занятость считается по её заявкам — одним запросом на всю
+     * страницу выдачи.
      */
     private Map<UUID, Seats> countTakenSeats(Collection<Game> games) {
         List<UUID> gameIds = games.stream().map(Game::getId).filter(Objects::nonNull).toList();
@@ -304,34 +300,15 @@ public class GameService {
             return Map.of();
         }
 
-        // Запрос отдаёт сессии в порядке близости, поэтому первая встреченная
-        // сессия игры и есть ближайшая.
-        Map<UUID, UUID> sessionByGame = new LinkedHashMap<>();
-        for (GameSession session : sessionRepository.findUpcoming(
-                gameIds, GameSessionStatus.SCHEDULED, Instant.now())) {
-            sessionByGame.putIfAbsent(session.getGameId(), session.getId());
-        }
-        if (sessionByGame.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<UUID, Seats> seatsBySession = registrationRepository
-                .countTakenSeatsBySession(
-                        List.copyOf(sessionByGame.values()),
-                        SessionRegistrationStatus.REJECTED,
-                        SessionRegistrationStatus.APPROVED)
+        return registrationRepository
+                .countTakenSeatsByGame(
+                        gameIds, RegistrationStatus.REJECTED, RegistrationStatus.APPROVED)
                 .stream()
                 .collect(Collectors.toMap(
-                        SessionPlayerCount::getSessionId,
+                        GameSeatCount::getGameId,
                         count -> new Seats(
                                 Math.toIntExact(count.getPlayerCount()),
                                 Math.toIntExact(count.getApprovedCount()))));
-
-        Map<UUID, Seats> seatsByGame = new LinkedHashMap<>();
-        sessionByGame.forEach((gameId, sessionId) ->
-                seatsByGame.put(gameId, seatsBySession.getOrDefault(sessionId, Seats.EMPTY)));
-
-        return seatsByGame;
     }
 
     /** Занятость мест ближайшей сессии: всего занято и из них подтверждено. */

@@ -1,6 +1,6 @@
 package club.ttg.findgame.registration;
 
-public enum SessionRegistrationStatus {
+public enum RegistrationStatus {
     PENDING,
     APPROVED,
     REJECTED

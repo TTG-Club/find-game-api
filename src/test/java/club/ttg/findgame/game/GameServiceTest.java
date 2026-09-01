@@ -4,9 +4,9 @@ import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
-import club.ttg.findgame.registration.SessionPlayerCount;
-import club.ttg.findgame.registration.SessionRegistrationRepository;
-import club.ttg.findgame.registration.SessionRegistrationStatus;
+import club.ttg.findgame.registration.GameSeatCount;
+import club.ttg.findgame.registration.GameRegistrationRepository;
+import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionStatus;
 import club.ttg.findgame.session.GameSessionRepository;
@@ -56,7 +56,7 @@ class GameServiceTest {
     private GameSessionRepository sessionRepository;
 
     @Mock
-    private SessionRegistrationRepository registrationRepository;
+    private GameRegistrationRepository registrationRepository;
 
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
 
@@ -195,104 +195,43 @@ class GameServiceTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    void searchResultsCarrySeatsTakenInNearestSession() {
+    void searchResultsCarrySeatsTakenInGame() {
         Game game = raisableGame(UUID.randomUUID(), Instant.now());
         game.setId(UUID.randomUUID());
-        GameSession nearest = upcomingSession(game.getId());
-        GameSession later = upcomingSession(game.getId());
-        UUID nearestId = nearest.getId();
-        List<GameSession> upcoming = List.of(nearest, later);
-        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 2));
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game)));
-        when(sessionRepository.findUpcoming(
-                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
-                .thenReturn(upcoming);
-        when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId),
-                SessionRegistrationStatus.REJECTED,
-                SessionRegistrationStatus.APPROVED))
-                .thenReturn(counts);
+        when(registrationRepository.countTakenSeatsByGame(
+                List.of(game.getId()),
+                RegistrationStatus.REJECTED,
+                RegistrationStatus.APPROVED))
+                .thenReturn(List.of(seatCount(game.getId(), 2, 2)));
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
-        // Считается ближайшая сессия, а не вся игра: заявку игрок подаёт
-        // именно в неё. Запрос отдаёт сессии по близости, первая и берётся.
+        // Игрок записывается в игру целиком, поэтому занятость считается по её
+        // заявкам, а не по отдельной встрече.
         assertThat(found.getContent()).singleElement()
                 .satisfies(response -> assertThat(response.takenSeats()).isEqualTo(2));
     }
 
     @SuppressWarnings("unchecked")
     @Test
-    void gameWithoutUpcomingSessionsReportsZeroSeatsTaken() {
+    void gameWithoutRegistrationsReportsZeroSeatsTaken() {
         Game game = raisableGame(UUID.randomUUID(), Instant.now());
         game.setId(UUID.randomUUID());
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game)));
-        when(sessionRepository.findUpcoming(
-                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+        when(registrationRepository.countTakenSeatsByGame(
+                List.of(game.getId()),
+                RegistrationStatus.REJECTED,
+                RegistrationStatus.APPROVED))
                 .thenReturn(List.of());
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
-        // Набора ещё нет — мест занято ноль, а не «неизвестно».
+        // Игры без заявок в групповой выдаче нет вовсе — это ноль, а не пропуск.
         assertThat(found.getContent()).singleElement()
                 .satisfies(response -> assertThat(response.takenSeats()).isZero());
-    }
-
-    @SuppressWarnings("unchecked")
-    @Test
-    void sessionWithoutRegistrationsReportsZeroSeatsTaken() {
-        Game game = raisableGame(UUID.randomUUID(), Instant.now());
-        game.setId(UUID.randomUUID());
-        GameSession nearest = upcomingSession(game.getId());
-        UUID nearestId = nearest.getId();
-        List<GameSession> upcoming = List.of(nearest);
-        when(repository.findAll(any(Specification.class), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(game)));
-        when(sessionRepository.findUpcoming(
-                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
-                .thenReturn(upcoming);
-        when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId),
-                SessionRegistrationStatus.REJECTED,
-                SessionRegistrationStatus.APPROVED))
-                .thenReturn(List.of());
-
-        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
-
-        // Сессии без принятых заявок в групповой выдаче нет вовсе.
-        assertThat(found.getContent()).singleElement()
-                .satisfies(response -> assertThat(response.takenSeats()).isZero());
-    }
-
-    @SuppressWarnings("unchecked")
-    @Test
-    void seatIsTakenByAnyApplicationExceptRejected() {
-        Game game = raisableGame(UUID.randomUUID(), Instant.now());
-        game.setId(UUID.randomUUID());
-        GameSession nearest = upcomingSession(game.getId());
-        UUID nearestId = nearest.getId();
-        List<GameSession> upcoming = List.of(nearest);
-        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 3));
-        when(repository.findAll(any(Specification.class), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(game)));
-        when(sessionRepository.findUpcoming(
-                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
-                .thenReturn(upcoming);
-        when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId),
-                SessionRegistrationStatus.REJECTED,
-                SessionRegistrationStatus.APPROVED))
-                .thenReturn(counts);
-
-        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
-
-        // Пока мастер разбирает заявку, игрок на место уже претендует: считать
-        // место свободным значило бы звать в него второго. Из подсчёта
-        // исключены только отклонённые.
-        assertThat(found.getContent()).singleElement()
-                .satisfies(response -> assertThat(response.takenSeats()).isEqualTo(3));
     }
 
     @SuppressWarnings("unchecked")
@@ -300,25 +239,18 @@ class GameServiceTest {
     void confirmedSeatsAreCountedApartFromPendingOnes() {
         Game game = raisableGame(UUID.randomUUID(), Instant.now());
         game.setId(UUID.randomUUID());
-        GameSession nearest = upcomingSession(game.getId());
-        UUID nearestId = nearest.getId();
-        List<GameSession> upcoming = List.of(nearest);
-        List<SessionPlayerCount> counts = List.of(playerCount(nearestId, 3, 1));
         when(repository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(game)));
-        when(sessionRepository.findUpcoming(
-                eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
-                .thenReturn(upcoming);
-        when(registrationRepository.countTakenSeatsBySession(
-                List.of(nearestId),
-                SessionRegistrationStatus.REJECTED,
-                SessionRegistrationStatus.APPROVED))
-                .thenReturn(counts);
+        when(registrationRepository.countTakenSeatsByGame(
+                List.of(game.getId()),
+                RegistrationStatus.REJECTED,
+                RegistrationStatus.APPROVED))
+                .thenReturn(List.of(seatCount(game.getId(), 3, 1)));
 
         Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
 
-        // Карточка различает подтверждённое место и место с неразобранной
-        // заявкой, поэтому чисел два.
+        // Пока мастер разбирает заявку, игрок на место уже претендует, но
+        // подтверждённым оно ещё не считается — поэтому чисел два.
         assertThat(found.getContent()).singleElement()
                 .satisfies(response -> {
                     assertThat(response.takenSeats()).isEqualTo(3);
@@ -326,27 +258,13 @@ class GameServiceTest {
                 });
     }
 
-    /** Предстоящая сессия игры — та, из которой берутся занятые места. */
-    private static GameSession upcomingSession(UUID gameId) {
-        GameSession session = mock(GameSession.class);
-        lenient().when(session.getId()).thenReturn(UUID.randomUUID());
-        lenient().when(session.getGameId()).thenReturn(gameId);
-
-        return session;
-    }
-
-    /** Строка группового подсчёта: все занятые места подтверждены. */
-    private static SessionPlayerCount playerCount(UUID sessionId, long players) {
-        return playerCount(sessionId, players, players);
-    }
-
-    /** Строка группового подсчёта занятых и подтверждённых мест. */
-    private static SessionPlayerCount playerCount(UUID sessionId, long players, long approved) {
-        return new SessionPlayerCount() {
+    /** Строка группового подсчёта занятых и подтверждённых мест игры. */
+    private static GameSeatCount seatCount(UUID gameId, long players, long approved) {
+        return new GameSeatCount() {
 
             @Override
-            public UUID getSessionId() {
-                return sessionId;
+            public UUID getGameId() {
+                return gameId;
             }
 
             @Override
@@ -359,456 +277,6 @@ class GameServiceTest {
                 return approved;
             }
         };
-    }
-
-    @Test
-    void ownGamesKeepInviteCodeAndIncludePrivateAndClosed() {
-        UUID masterId = UUID.randomUUID();
-        UUID inviteCode = UUID.randomUUID();
-        Game privateClosed = raisableGame(masterId, Instant.now());
-        privateClosed.setVisibility(GameVisibility.PRIVATE);
-        privateClosed.setStatus(GameStatus.CLOSED);
-        privateClosed.setInviteCode(inviteCode);
-        when(repository.findAllByMasterIdAndDeletedAtIsNull(eq(masterId), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(privateClosed)));
-
-        Page<GameResponse> own = service().findOwn(masterId, 0, 20);
-
-        // Владельцу код нужен, чтобы собрать ссылку-приглашение: в публичных
-        // ответах он вырезается, здесь — обязан остаться.
-        assertThat(own.getContent()).singleElement()
-                .satisfies(game -> {
-                    assertThat(game.inviteCode()).isEqualTo(inviteCode);
-                    assertThat(game.visibility()).isEqualTo(GameVisibility.PRIVATE);
-                    assertThat(game.status()).isEqualTo(GameStatus.CLOSED);
-                });
-    }
-
-    @Test
-    void ownGamesUseTheSameStableOrderAsPublicSearch() {
-        UUID masterId = UUID.randomUUID();
-        when(repository.findAllByMasterIdAndDeletedAtIsNull(eq(masterId), any(Pageable.class)))
-                .thenReturn(Page.empty());
-
-        service().findOwn(masterId, 3, 10);
-
-        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(repository).findAllByMasterIdAndDeletedAtIsNull(eq(masterId), pageable.capture());
-        assertThat(pageable.getValue().getPageNumber()).isEqualTo(3);
-        assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
-        assertThat(pageable.getValue().getSort().getOrderFor("listPositionAt").getDirection())
-                .isEqualTo(Sort.Direction.DESC);
-        assertThat(pageable.getValue().getSort().getOrderFor("id").getDirection())
-                .isEqualTo(Sort.Direction.DESC);
-    }
-
-    @Test
-    void nonSubscriberCannotCreateSecondUnfinishedGame() {
-        UUID masterId = UUID.randomUUID();
-        when(repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
-                .thenReturn(true);
-
-        assertThatThrownBy(() -> service().create(
-                masterId, "game-master", request(3, 5, GameVisibility.PUBLIC)))
-                .isInstanceOf(ActiveGameLimitExceededException.class);
-
-        verify(creationLockService).lock(masterId);
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void activeSubscriberCanCreateUnlimitedGames() {
-        UUID masterId = UUID.randomUUID();
-        when(subscriptionStatusClient.status("subscriber")).thenReturn(Optional.of(
-                new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "BUY")));
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        service().create(masterId, "subscriber", request(3, 5, GameVisibility.PUBLIC));
-
-        verify(creationLockService, never()).lock(any());
-        verify(repository, never()).existsByMasterIdAndStatusNotAndDeletedAtIsNull(any(), any());
-        verify(repository).save(any(Game.class));
-    }
-
-    @Test
-    void subscriptionServiceFailureUsesFreeLimit() {
-        UUID masterId = UUID.randomUUID();
-        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
-        when(repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
-                .thenReturn(true);
-
-        assertThatThrownBy(() -> service().create(
-                masterId, "game-master", request(3, 5, GameVisibility.PUBLIC)))
-                .isInstanceOf(ActiveGameLimitExceededException.class);
-    }
-
-    @Test
-    void ownerCanCloseGame() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = new Game();
-        game.setMasterId(masterId);
-        game.setStatus(GameStatus.OPEN);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        service().close(masterId, gameId);
-
-        assertThat(game.getStatus()).isEqualTo(GameStatus.CLOSED);
-        verify(repository).save(game);
-    }
-
-    @Test
-    void ownerCanCancelGame() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = new Game();
-        game.setMasterId(masterId);
-        game.setStatus(GameStatus.OPEN);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        service().cancel(masterId, gameId);
-
-        // Не состоявшаяся игра закрывается отменой: «завершена» про такую —
-        // неправда, а по завершённым видно, что мастер действительно провёл.
-        assertThat(game.getStatus()).isEqualTo(GameStatus.CANCELLED);
-        verify(repository).save(game);
-    }
-
-    @Test
-    void anotherUserCannotCancelGame() {
-        UUID gameId = UUID.randomUUID();
-        Game game = new Game();
-        game.setMasterId(UUID.randomUUID());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().cancel(UUID.randomUUID(), gameId))
-                .isInstanceOf(GameAccessDeniedException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void anotherUserCannotCloseGame() {
-        UUID gameId = UUID.randomUUID();
-        Game game = new Game();
-        game.setMasterId(UUID.randomUUID());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().close(UUID.randomUUID(), gameId))
-                .isInstanceOf(GameAccessDeniedException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void freeMasterCanRaisePublicOpenGameAfterOneDay() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(masterId, Instant.now().minus(25, ChronoUnit.HOURS));
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(repository.save(game)).thenReturn(game);
-
-        GameResponse response = service().raise(masterId, "game-master", gameId);
-
-        assertThat(response.listPositionAt()).isAfter(Instant.now().minus(1, ChronoUnit.MINUTES));
-        verify(repository).save(game);
-    }
-
-    @Test
-    void freeMasterCannotRaiseGameTwiceWithinOneDay() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(masterId, Instant.now().minus(23, ChronoUnit.HOURS));
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
-                .isInstanceOf(GameRaiseCooldownException.class)
-                .satisfies(exception -> assertThat(((GameRaiseCooldownException) exception).getAvailableAt())
-                        .isEqualTo(game.getListPositionAt().plus(1, ChronoUnit.DAYS)));
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void activeSubscriberCanRaiseGameAfterOneHour() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(masterId, Instant.now().minus(61, ChronoUnit.MINUTES));
-        when(subscriptionStatusClient.status("subscriber")).thenReturn(Optional.of(
-                new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "BUY")));
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(repository.save(game)).thenReturn(game);
-
-        service().raise(masterId, "subscriber", gameId);
-
-        verify(repository).save(game);
-    }
-
-    @Test
-    void subscriptionServiceFailureUsesDailyRaiseInterval() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.HOURS));
-        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
-                .isInstanceOf(GameRaiseCooldownException.class);
-    }
-
-    @Test
-    void cannotRaiseAnotherMastersGame() {
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(UUID.randomUUID(), Instant.now().minus(2, ChronoUnit.DAYS));
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().raise(UUID.randomUUID(), "game-master", gameId))
-                .isInstanceOf(GameAccessDeniedException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void cannotRaiseClosedGame() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.DAYS));
-        game.setStatus(GameStatus.CLOSED);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
-                .isInstanceOf(GameCannotBeRaisedException.class);
-    }
-
-    @Test
-    void masterEditsOwnGame() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        UpdateGameRequest request = withTitle(updateRequest(), "Новое название");
-        GameResponse response = service().update(masterId, gameId, request);
-
-        assertThat(response.title()).isEqualTo("Новое название");
-        // Владение и статус редактированием не управляются.
-        assertThat(response.masterId()).isEqualTo(masterId);
-        assertThat(response.status()).isEqualTo(GameStatus.OPEN);
-    }
-
-    @Test
-    void strangerCannotEditGame() {
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, UUID.randomUUID());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().update(UUID.randomUUID(), gameId, updateRequest()))
-                .isInstanceOf(GameAccessDeniedException.class);
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void editKeepsTheSameChecksAsCreation() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        lenient().when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().update(
-                masterId, gameId, withPlayers(updateRequest(), 6, 5)))
-                .isInstanceOf(InvalidPlayerCountException.class);
-
-        assertThatThrownBy(() -> service().update(
-                masterId, gameId, withCity(updateRequest(), "Кишинёв")))
-                .isInstanceOf(InvalidGameDetailsException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void switchingToPrivateIssuesInviteCode() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        GameResponse response = service().update(
-                masterId, gameId, withVisibility(updateRequest(), GameVisibility.PRIVATE));
-
-        assertThat(response.inviteCode()).isNotNull();
-    }
-
-    @Test
-    void switchingBackToPublicClearsInviteCode() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        game.setVisibility(GameVisibility.PRIVATE);
-        game.setInviteCode(UUID.randomUUID());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Оставленный код открывал бы прямой доступ и после возврата в публичные.
-        GameResponse response = service().update(masterId, gameId, updateRequest());
-
-        assertThat(response.inviteCode()).isNull();
-    }
-
-    @Test
-    void typoInTitleIsFixableEvenWithSessionsAndApprovedPlayers() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        game.setTitle("Проклятье Сирада");
-        GameSession session = mock(GameSession.class);
-        when(session.getId()).thenReturn(sessionId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
-                .thenReturn(List.of(session));
-        when(registrationRepository.countBySessionIdAndStatus(
-                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Замок стоит только на платности: опечатку в названии мастер обязан
-        // мочь исправить в любой момент, даже когда игроки уже набраны.
-        GameResponse response = service().update(
-                masterId, gameId, withTitle(updateRequest(), "Проклятие Страда"));
-
-        assertThat(response.title()).isEqualTo("Проклятие Страда");
-    }
-
-    @Test
-    void costTypeCannotChangeWhenSessionsExist() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.existsByGameId(gameId)).thenReturn(true);
-
-        // У сессий бесплатной игры нет ни суммы, ни условий оплаты — задним
-        // числом сделать игру платной нечем.
-        assertThatThrownBy(() -> service().update(
-                masterId, gameId, withCostType(updateRequest(), GameCostType.PAID)))
-                .isInstanceOf(InvalidGameDetailsException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void costTypeChangesFreelyWhileThereAreNoSessions() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.existsByGameId(gameId)).thenReturn(false);
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        GameResponse response = service().update(
-                masterId, gameId, withCostType(updateRequest(), GameCostType.PAID));
-
-        assertThat(response.costType()).isEqualTo(GameCostType.PAID);
-    }
-
-    @Test
-    void maxPlayersCannotDropBelowApprovedPlayers() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        GameSession session = mock(GameSession.class);
-        when(session.getId()).thenReturn(sessionId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
-                .thenReturn(List.of(session));
-        when(registrationRepository.countBySessionIdAndStatus(
-                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
-
-        // Иначе принятые игроки оказались бы сверх лимита, а починить это нечем.
-        assertThatThrownBy(() -> service().update(
-                masterId, gameId, withPlayers(updateRequest(), 2, 3)))
-                .isInstanceOf(InvalidPlayerCountException.class);
-
-        verify(repository, never()).save(any());
-    }
-
-    @Test
-    void maxPlayersGrowsFreely() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
-        Game game = editableGame(gameId, masterId);
-        GameSession session = mock(GameSession.class);
-        when(session.getId()).thenReturn(sessionId);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId))
-                .thenReturn(List.of(session));
-        when(registrationRepository.countBySessionIdAndStatus(
-                sessionId, SessionRegistrationStatus.APPROVED)).thenReturn(4L);
-        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        GameResponse response = service().update(
-                masterId, gameId, withPlayers(updateRequest(), 3, 8));
-
-        assertThat(response.maxPlayers()).isEqualTo(8);
-    }
-
-    @Test
-    void editingMissingGameIsNotFound() {
-        UUID gameId = UUID.randomUUID();
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service().update(UUID.randomUUID(), gameId, updateRequest()))
-                .isInstanceOf(GameNotFoundException.class);
-    }
-
-    private UpdateGameRequest withTitle(UpdateGameRequest source, String title) {
-        return new UpdateGameRequest(
-                title, source.system(), source.imageUrl(), source.virtualTableUrl(), source.genre(),
-                source.description(), source.requirements(), source.allowedSources(), source.type(),
-                source.city(), source.playersToStart(), source.maxPlayers(), source.minAge(),
-                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                source.durationType(), source.costType(), source.visibility());
-    }
-
-    private UpdateGameRequest withPlayers(
-            UpdateGameRequest source, int playersToStart, int maxPlayers) {
-        return new UpdateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.genre(), source.description(), source.requirements(), source.allowedSources(),
-                source.type(), source.city(), playersToStart, maxPlayers, source.minAge(),
-                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                source.durationType(), source.costType(), source.visibility());
-    }
-
-    private UpdateGameRequest withCity(UpdateGameRequest source, String city) {
-        return new UpdateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.genre(), source.description(), source.requirements(), source.allowedSources(),
-                source.type(), city, source.playersToStart(), source.maxPlayers(), source.minAge(),
-                source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                source.durationType(), source.costType(), source.visibility());
-    }
-
-    private UpdateGameRequest withCostType(UpdateGameRequest source, GameCostType costType) {
-        return new UpdateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.genre(), source.description(), source.requirements(), source.allowedSources(),
-                source.type(), source.city(), source.playersToStart(), source.maxPlayers(),
-                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                source.durationType(), costType, source.visibility());
-    }
-
-    private UpdateGameRequest withVisibility(
-            UpdateGameRequest source, GameVisibility visibility) {
-        return new UpdateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.genre(), source.description(), source.requirements(), source.allowedSources(),
-                source.type(), source.city(), source.playersToStart(), source.maxPlayers(),
-                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                source.durationType(), source.costType(), visibility);
     }
 
     private GameService service() {

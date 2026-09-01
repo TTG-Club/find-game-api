@@ -5,7 +5,7 @@ import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
-import club.ttg.findgame.registration.api.CreateSessionRegistrationRequest;
+import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.UpdateGameRequest;
@@ -80,15 +80,15 @@ class SiteUrlValidationTest {
     })
     void acceptsCharacterSheetOfSiteAndOutside(String sheetUrl) {
         assertThat(validator.validateProperty(
-                new CreateSessionRegistrationRequest(sheetUrl, null), "characterSheetUrl"))
+                new CreateGameRegistrationRequest(sheetUrl, null), "characterSheetUrl"))
                 .isEmpty();
     }
 
     @Test
     void allowsApplicationWithNameInsteadOfSheet() {
         // Листа на сайте может и не быть: игрок называет персонажа словами.
-        CreateSessionRegistrationRequest request =
-                new CreateSessionRegistrationRequest(null, "Тассельхоф Непоседа");
+        CreateGameRegistrationRequest request =
+                new CreateGameRegistrationRequest(null, "Тассельхоф Непоседа");
 
         assertThat(validator.validate(request)).isEmpty();
     }

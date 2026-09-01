@@ -45,7 +45,7 @@ public class ChatController {
             @PathVariable UUID gameId,
             @Valid @RequestBody CreateChatEventRequest request
     ) {
-        return service.create(userId(jwt), gameId, null, request);
+        return service.create(userId(jwt), gameId, null, null, request);
     }
 
     @GetMapping("/chat/events")
@@ -56,7 +56,7 @@ public class ChatController {
             @RequestParam(required = false) Instant before,
             @RequestParam(required = false) Integer limit
     ) {
-        return service.history(userId(jwt), gameId, null, before, limit);
+        return service.history(userId(jwt), gameId, null, null, before, limit);
     }
 
     @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -65,7 +65,7 @@ public class ChatController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId
     ) {
-        return service.subscribe(userId(jwt), gameId, null);
+        return service.subscribe(userId(jwt), gameId, null, null);
     }
 
     @PostMapping("/sessions/{sessionId}/chat/events")
@@ -77,7 +77,7 @@ public class ChatController {
             @PathVariable UUID sessionId,
             @Valid @RequestBody CreateChatEventRequest request
     ) {
-        return service.create(userId(jwt), gameId, sessionId, request);
+        return service.create(userId(jwt), gameId, sessionId, null, request);
     }
 
     @GetMapping("/sessions/{sessionId}/chat/events")
@@ -89,7 +89,7 @@ public class ChatController {
             @RequestParam(required = false) Instant before,
             @RequestParam(required = false) Integer limit
     ) {
-        return service.history(userId(jwt), gameId, sessionId, before, limit);
+        return service.history(userId(jwt), gameId, sessionId, null, before, limit);
     }
 
     @GetMapping(value = "/sessions/{sessionId}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -99,7 +99,41 @@ public class ChatController {
             @PathVariable UUID gameId,
             @PathVariable UUID sessionId
     ) {
-        return service.subscribe(userId(jwt), gameId, sessionId);
+        return service.subscribe(userId(jwt), gameId, sessionId, null);
+    }
+
+    @PostMapping("/players/{playerId}/chat/events")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Отправить сообщение в личную переписку игрока с мастером")
+    public ChatEventResponse createForPlayer(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID playerId,
+            @Valid @RequestBody CreateChatEventRequest request
+    ) {
+        return service.create(userId(jwt), gameId, null, playerId, request);
+    }
+
+    @GetMapping("/players/{playerId}/chat/events")
+    @Operation(summary = "Получить историю личной переписки игрока с мастером")
+    public List<ChatEventResponse> playerHistory(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID playerId,
+            @RequestParam(required = false) Instant before,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return service.history(userId(jwt), gameId, null, playerId, before, limit);
+    }
+
+    @GetMapping(value = "/players/{playerId}/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Подключиться к личной переписке игрока с мастером")
+    public SseEmitter streamPlayer(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID playerId
+    ) {
+        return service.subscribe(userId(jwt), gameId, null, playerId);
     }
 
     private UUID userId(Jwt jwt) {

@@ -60,7 +60,7 @@ class ChatControllerSecurityTest {
                         .content(textRequest()))
                 .andExpect(status().isCreated());
 
-        verify(service).create(eq(userId), eq(gameId), eq(sessionId), any());
+        verify(service).create(eq(userId), eq(gameId), eq(sessionId), eq(null), any());
     }
 
     private String textRequest() {
