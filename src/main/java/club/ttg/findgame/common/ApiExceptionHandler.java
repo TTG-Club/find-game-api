@@ -23,6 +23,9 @@ import club.ttg.findgame.registration.SessionRegistrationAccessDeniedException;
 import club.ttg.findgame.registration.SessionRegistrationNotFoundException;
 import club.ttg.findgame.profile.InvalidUserProfileException;
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -35,6 +38,8 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(GameNotFoundException.class)
     ProblemDetail handleNotFound(GameNotFoundException exception) {
@@ -149,6 +154,38 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidNexusException.class)
     ProblemDetail handleInvalidNexus(InvalidNexusException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректное действие с нексусом", exception.getMessage());
+    }
+
+    /**
+     * Нарушение ограничения хранилища.
+     *
+     * Раньше такое уходило голым 500 мимо этого обработчика и мимо логов:
+     * клиент видел «Internal Server Error», а причина — имя нарушённого
+     * ограничения — не попадала никуда. Теперь она и пишется в лог, и уходит
+     * в ответ: без неё чинить нечего.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail handleDataIntegrity(DataIntegrityViolationException exception) {
+        log.error("Нарушено ограничение хранилища", exception);
+
+        return problem(HttpStatus.CONFLICT, "Запись отклонена хранилищем",
+                constraintOf(exception));
+    }
+
+    /** Имя нарушенного ограничения; сырой SQL наружу не уходит. */
+    private static String constraintOf(DataIntegrityViolationException exception) {
+        Throwable cause = exception.getCause();
+
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation
+                    && violation.getConstraintName() != null) {
+                return "Нарушено ограничение " + violation.getConstraintName();
+            }
+
+            cause = cause.getCause();
+        }
+
+        return "Данные не прошли проверку хранилища";
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
