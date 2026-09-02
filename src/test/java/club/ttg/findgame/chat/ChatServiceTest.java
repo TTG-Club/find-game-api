@@ -1,6 +1,8 @@
 package club.ttg.findgame.chat;
 
 import club.ttg.findgame.chat.api.CreateChatEventRequest;
+import club.ttg.findgame.chat.api.DiceGroupRequest;
+import club.ttg.findgame.chat.api.DiceRollValueRequest;
 import club.ttg.findgame.chat.api.DiceRollRequest;
 import club.ttg.findgame.chat.api.SpellCastRequest;
 import club.ttg.findgame.nexus.NexusService;
@@ -12,6 +14,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -125,16 +128,29 @@ class ChatServiceTest {
         allow(authorId, nexusId);
         saveAssignedEvent();
 
+        DiceRollRequest roll = new DiceRollRequest("2к20вл1", 18,
+                List.of(new DiceGroupRequest("2к20", List.of(
+                        new DiceRollValueRequest(18, true, "success"),
+                        new DiceRollValueRequest(7, false, null)))),
+                "Атака");
+
         var response = service().create(authorId, nexusId,
-                new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
-                        new DiceRollRequest("2к20вл1", 18, "[18, 7] → 18", "Атака"), null));
+                new CreateChatEventRequest(
+                        UUID.randomUUID(), ChatEventType.DICE_ROLL, null, roll, null));
 
         // Нотацию сайта разбирает роллер браузера: сервис принимает готовый
         // результат и ничего не пересчитывает.
         assertThat(response.payload().get("expression").stringValue()).isEqualTo("2к20вл1");
         assertThat(response.payload().get("total").asInt()).isEqualTo(18);
-        assertThat(response.payload().get("detail").stringValue()).isEqualTo("[18, 7] → 18");
         assertThat(response.payload().get("label").stringValue()).isEqualTo("Атака");
+
+        var rolls = response.payload().get("groups").get(0).get("rolls");
+
+        // Отброшенный роллером куб остаётся в ленте: по нему читается, как
+        // получился итог.
+        assertThat(rolls.get(0).get("value").asInt()).isEqualTo(18);
+        assertThat(rolls.get(0).get("valid").asBoolean()).isTrue();
+        assertThat(rolls.get(1).get("valid").asBoolean()).isFalse();
     }
 
     @Test

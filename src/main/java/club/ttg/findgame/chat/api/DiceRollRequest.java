@@ -1,8 +1,11 @@
 package club.ttg.findgame.chat.api;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+
+import java.util.List;
 
 /**
  * Готовый бросок.
@@ -14,13 +17,13 @@ import jakarta.validation.constraints.Size;
  *
  * @param expression Формула, как её набрал игрок.
  * @param total Итог броска.
- * @param detail Разбор броска строкой: что выпало на кубах.
+ * @param groups Что выпало на кубах, по группам одного вида.
  * @param label Подпись броска.
  */
 public record DiceRollRequest(
         @NotBlank @Size(max = 100) String expression,
         @NotNull Integer total,
-        @Size(max = 500) String detail,
+        @Size(max = 20) @Valid List<DiceGroupRequest> groups,
         @Size(max = 200) String label
 ) {
 }

@@ -198,8 +198,27 @@ public class ChatService {
         }
 
         payload.put("total", request.total());
-        putIfNotBlank(payload, "detail", request.detail());
         putIfNotBlank(payload, "label", request.label());
+
+        if (request.groups() != null && !request.groups().isEmpty()) {
+            var groups = payload.putArray("groups");
+
+            request.groups().forEach(group -> {
+                ObjectNode node = groups.addObject();
+
+                putIfNotBlank(node, "label", group.label());
+
+                var rolls = node.putArray("rolls");
+
+                group.rolls().forEach(value -> {
+                    ObjectNode roll = rolls.addObject();
+
+                    roll.put("value", value.value());
+                    roll.put("valid", value.valid());
+                    putIfNotBlank(roll, "critical", value.critical());
+                });
+            });
+        }
 
         return payload;
     }
