@@ -110,6 +110,41 @@ class NexusSheetServiceTest {
     }
 
     @Test
+    void playerDoesNotGetTheKeyToSomeoneElsesSheet() {
+        UUID playerId = UUID.randomUUID();
+        UUID nexusId = UUID.randomUUID();
+        allow(playerId, nexusId, UUID.randomUUID());
+
+        List<NexusCharacterSheet> sheets = List.of(sheet(nexusId, UUID.randomUUID()));
+        when(sheetRepository.findAllByNexusIdOrderByCreatedAtAsc(nexusId))
+                .thenReturn(sheets);
+
+        // Токен — ключ к листу: с ним лист открывается и в обход комнаты,
+        // поэтому чужой игроку не достаётся.
+        assertThat(service().findAll(playerId, nexusId))
+                .singleElement()
+                .satisfies(sheet -> {
+                    assertThat(sheet.shareToken()).isNull();
+                    assertThat(sheet.canRemove()).isFalse();
+                });
+    }
+
+    @Test
+    void playerKeepsTheKeyToOwnSheet() {
+        UUID playerId = UUID.randomUUID();
+        UUID nexusId = UUID.randomUUID();
+        allow(playerId, nexusId, UUID.randomUUID());
+
+        List<NexusCharacterSheet> sheets = List.of(sheet(nexusId, playerId));
+        when(sheetRepository.findAllByNexusIdOrderByCreatedAtAsc(nexusId))
+                .thenReturn(sheets);
+
+        assertThat(service().findAll(playerId, nexusId))
+                .singleElement()
+                .satisfies(sheet -> assertThat(sheet.shareToken()).isEqualTo("9d1f1d0e"));
+    }
+
+    @Test
     void roomOwnerMayTakeAwayEverySheetInTheList() {
         UUID roomOwnerId = UUID.randomUUID();
         UUID nexusId = UUID.randomUUID();
@@ -119,9 +154,13 @@ class NexusSheetServiceTest {
         when(sheetRepository.findAllByNexusIdOrderByCreatedAtAsc(nexusId))
                 .thenReturn(sheets);
 
+        // Владелец комнаты ведёт игру: ему открыт любой лист за столом.
         assertThat(service().findAll(roomOwnerId, nexusId))
                 .singleElement()
-                .satisfies(sheet -> assertThat(sheet.canRemove()).isTrue());
+                .satisfies(sheet -> {
+                    assertThat(sheet.canRemove()).isTrue();
+                    assertThat(sheet.shareToken()).isEqualTo("9d1f1d0e");
+                });
     }
 
     @Test

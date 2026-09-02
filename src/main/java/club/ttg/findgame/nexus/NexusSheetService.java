@@ -166,12 +166,17 @@ public class NexusSheetService {
             UUID userId,
             boolean roomOwner
     ) {
+        boolean own = sheet.getOwnerId().equals(userId);
+
         return new NexusSheetResponse(
                 sheet.getId(),
                 sheet.getOwnerId(),
-                sheet.getShareToken(),
+                // Токен — ключ к листу: с ним лист открывается и в обход
+                // комнаты. Чужой лист смотрит только владелец комнаты, за
+                // столом он ведёт игру и знает всех персонажей.
+                roomOwner || own ? sheet.getShareToken() : null,
                 sheet.getCharacterName(),
-                roomOwner || sheet.getOwnerId().equals(userId),
+                roomOwner || own,
                 sheet.getCreatedAt());
     }
 }
