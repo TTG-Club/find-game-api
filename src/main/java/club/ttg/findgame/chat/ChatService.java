@@ -198,6 +198,7 @@ public class ChatService {
         }
 
         payload.put("total", request.total());
+        putIfNotBlank(payload, "subject", request.subject());
         putIfNotBlank(payload, "label", request.label());
 
         if (request.groups() != null && !request.groups().isEmpty()) {

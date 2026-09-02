@@ -132,7 +132,7 @@ class ChatServiceTest {
                 List.of(new DiceGroupRequest("2к20", List.of(
                         new DiceRollValueRequest(18, true, "success"),
                         new DiceRollValueRequest(7, false, null)))),
-                "Атака");
+                "Булава", "Атака");
 
         var response = service().create(authorId, nexusId,
                 new CreateChatEventRequest(
@@ -142,6 +142,7 @@ class ChatServiceTest {
         // результат и ничего не пересчитывает.
         assertThat(response.payload().get("expression").stringValue()).isEqualTo("2к20вл1");
         assertThat(response.payload().get("total").asInt()).isEqualTo(18);
+        assertThat(response.payload().get("subject").stringValue()).isEqualTo("Булава");
         assertThat(response.payload().get("label").stringValue()).isEqualTo("Атака");
 
         var rolls = response.payload().get("groups").get(0).get("rolls");
@@ -161,7 +162,7 @@ class ChatServiceTest {
 
         assertThatThrownBy(() -> service().create(authorId, nexusId,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
-                        new DiceRollRequest("   ", 5, null, null), null)))
+                        new DiceRollRequest("   ", 5, null, null, null), null)))
                 .isInstanceOf(InvalidChatEventException.class);
 
         verify(eventRepository, never()).save(any());
