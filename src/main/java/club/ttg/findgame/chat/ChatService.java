@@ -14,30 +14,23 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class ChatService {
 
     private static final int DEFAULT_HISTORY_LIMIT = 50;
     private static final int MAX_HISTORY_LIMIT = 100;
-    private static final int MAX_DICE_COUNT = 100;
-    private static final int MAX_DIE_SIDES = 1000;
-    private static final Pattern DICE_EXPRESSION = Pattern.compile("^(\\d{1,3})d(\\d{1,4})([+-]\\d{1,4})?$", Pattern.CASE_INSENSITIVE);
 
     private final ChatEventRepository eventRepository;
     private final NexusService nexusService;
     private final ChatEventBroadcaster broadcaster;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
-    private final SecureRandom random = new SecureRandom();
 
     public ChatService(
             ChatEventRepository eventRepository,
@@ -176,7 +169,7 @@ public class ChatService {
                 }
                 event.setContent(text);
             }
-            case DICE_ROLL -> event.setPayload(toJson(rollDice(request.diceRoll())));
+            case DICE_ROLL -> event.setPayload(toJson(dicePayload(request.diceRoll())));
             case SPELL_CAST -> event.setPayload(toJson(spellPayload(request.spellCast())));
             // Системные события пишет сервис, а не участник.
             case SYSTEM -> throw new InvalidChatEventException(
@@ -184,37 +177,30 @@ public class ChatService {
         }
     }
 
-    private JsonNode rollDice(DiceRollRequest request) {
+    /**
+     * Складывает присланный бросок в содержимое события.
+     *
+     * Результат приходит от клиента и принимается как есть: считает его
+     * роллер сайта, знающий всю нотацию. Проверяются только границы полей —
+     * ими и ограничивается доверие.
+     */
+    private JsonNode dicePayload(DiceRollRequest request) {
         if (request == null) {
             throw new InvalidChatEventException("Для DICE_ROLL требуется diceRoll");
         }
-        String expression = request.expression().replace(" ", "");
-        Matcher matcher = DICE_EXPRESSION.matcher(expression);
-        if (!matcher.matches()) {
-            throw new InvalidChatEventException("Формат броска: NdM, NdM+K или NdM-K");
-        }
-        int count = Integer.parseInt(matcher.group(1));
-        int sides = Integer.parseInt(matcher.group(2));
-        int modifier = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
-        if (count < 1 || count > MAX_DICE_COUNT || sides < 2 || sides > MAX_DIE_SIDES) {
-            throw new InvalidChatEventException("Допустимо от 1 до 100 кубов с количеством граней от 2 до 1000");
-        }
 
         ObjectNode payload = objectMapper.createObjectNode();
-        payload.put("expression", expression.toLowerCase());
-        var results = payload.putArray("results");
-        int total = modifier;
-        for (int i = 0; i < count; i++) {
-            int value = random.nextInt(sides) + 1;
-            results.add(value);
-            total += value;
+
+        putIfNotBlank(payload, "expression", request.expression());
+
+        if (!payload.has("expression")) {
+            throw new InvalidChatEventException("Формула броска не может быть пустой");
         }
-        payload.put("modifier", modifier);
-        payload.put("total", total);
-        String label = normalize(request.label());
-        if (label != null) {
-            payload.put("label", label);
-        }
+
+        payload.put("total", request.total());
+        putIfNotBlank(payload, "detail", request.detail());
+        putIfNotBlank(payload, "label", request.label());
+
         return payload;
     }
 

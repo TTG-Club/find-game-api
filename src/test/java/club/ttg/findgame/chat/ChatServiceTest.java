@@ -119,7 +119,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void diceRollIsResolvedByTheServer() {
+    void rolledResultIsStoredAsSent() {
         UUID authorId = UUID.randomUUID();
         UUID nexusId = UUID.randomUUID();
         allow(authorId, nexusId);
@@ -127,25 +127,26 @@ class ChatServiceTest {
 
         var response = service().create(authorId, nexusId,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
-                        new DiceRollRequest("2d6+3", "Урон"), null));
+                        new DiceRollRequest("2к20вл1", 18, "[18, 7] → 18", "Атака"), null));
 
-        // Бросок считает сервис: клиент присылает только выражение.
-        assertThat(response.payload().get("results")).hasSize(2);
-        assertThat(response.payload().get("total").asInt()).isBetween(5, 15);
-        assertThat(response.payload().get("label").stringValue()).isEqualTo("Урон");
+        // Нотацию сайта разбирает роллер браузера: сервис принимает готовый
+        // результат и ничего не пересчитывает.
+        assertThat(response.payload().get("expression").stringValue()).isEqualTo("2к20вл1");
+        assertThat(response.payload().get("total").asInt()).isEqualTo(18);
+        assertThat(response.payload().get("detail").stringValue()).isEqualTo("[18, 7] → 18");
+        assertThat(response.payload().get("label").stringValue()).isEqualTo("Атака");
     }
 
     @Test
-    void serverRejectsUnsupportedDiceExpression() {
+    void rollWithoutFormulaIsRejected() {
         UUID authorId = UUID.randomUUID();
         UUID nexusId = UUID.randomUUID();
         allow(authorId, nexusId);
 
         assertThatThrownBy(() -> service().create(authorId, nexusId,
                 new CreateChatEventRequest(UUID.randomUUID(), ChatEventType.DICE_ROLL, null,
-                        new DiceRollRequest("2d20kh1", null), null)))
-                .isInstanceOf(InvalidChatEventException.class)
-                .hasMessageContaining("Формат броска");
+                        new DiceRollRequest("   ", 5, null, null), null)))
+                .isInstanceOf(InvalidChatEventException.class);
 
         verify(eventRepository, never()).save(any());
     }
