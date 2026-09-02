@@ -176,8 +176,8 @@ public class ChatService {
                 }
                 event.setContent(text);
             }
-            case DICE_ROLL -> event.setPayload(rollDice(request.diceRoll()));
-            case SPELL_CAST -> event.setPayload(spellPayload(request.spellCast()));
+            case DICE_ROLL -> event.setPayload(toJson(rollDice(request.diceRoll())));
+            case SPELL_CAST -> event.setPayload(toJson(spellPayload(request.spellCast())));
             // Системные события пишет сервис, а не участник.
             case SYSTEM -> throw new InvalidChatEventException(
                     "Событие SYSTEM отправляется сервисом, а не участником");
@@ -252,10 +252,20 @@ public class ChatService {
         return value.trim();
     }
 
+    /** Готовое содержимое строкой: в этом виде оно и лежит в хранилище. */
+    private String toJson(JsonNode payload) {
+        return payload == null ? null : objectMapper.writeValueAsString(payload);
+    }
+
+    /** Содержимое из хранилища; пустое остаётся пустым. */
+    private JsonNode fromJson(String payload) {
+        return payload == null ? null : objectMapper.readTree(payload);
+    }
+
     private ChatEventResponse toResponse(ChatEvent event) {
         return new ChatEventResponse(
                 event.getId(), event.getNexusId(), event.getAuthorId(),
                 event.getClientMessageId(), event.getType(), event.getContent(),
-                event.getPayload(), event.getCreatedAt());
+                fromJson(event.getPayload()), event.getCreatedAt());
     }
 }

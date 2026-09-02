@@ -13,7 +13,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -59,9 +58,16 @@ public class ChatEvent {
     @Column(columnDefinition = "text")
     private String content;
 
+    /**
+     * Содержимое броска — готовый JSON строкой.
+     *
+     * Не `JsonNode`: узел Jackson 3 хранилище сериализовать не умеет — его
+     * форматтер работает с Jackson 2, — и запись с непустым содержимым
+     * падала. Строку оно кладёт в `jsonb` без посредников.
+     */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
-    private JsonNode payload;
+    private String payload;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

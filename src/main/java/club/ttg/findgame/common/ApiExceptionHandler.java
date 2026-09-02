@@ -25,6 +25,7 @@ import club.ttg.findgame.profile.InvalidUserProfileException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -186,6 +187,14 @@ public class ApiExceptionHandler {
         }
 
         return "Данные не прошли проверку хранилища";
+    }
+
+    @ExceptionHandler(DataAccessException.class)
+    ProblemDetail handleDataAccess(DataAccessException exception) {
+        log.error("Хранилище отклонило запрос", exception);
+
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Ошибка хранилища",
+                "Запрос к хранилищу не выполнен");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
