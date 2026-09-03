@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -39,6 +41,20 @@ public class NexusTracker {
 
     @Column(nullable = false, length = 150)
     private String title;
+
+    /**
+     * Снимок идущего боя: порядок хода, текущий боец и раунд.
+     *
+     * Хранится строкой, а не деревом: JSON-формат Hibernate достался от
+     * Jackson 2, и объект третьего Jackson он сериализовать не берётся.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private String state;
+
+    /** Когда снимок обновляли: комната показывает бой, шевелившийся последним. */
+    @Column(name = "state_updated_at")
+    private Instant stateUpdatedAt;
 
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;

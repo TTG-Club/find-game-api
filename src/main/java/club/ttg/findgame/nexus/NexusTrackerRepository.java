@@ -12,5 +12,10 @@ public interface NexusTrackerRepository extends JpaRepository<NexusTracker, UUID
 
     Optional<NexusTracker> findByIdAndNexusId(UUID id, UUID nexusId);
 
+    Optional<NexusTracker> findByNexusIdAndTrackerId(UUID nexusId, UUID trackerId);
+
+    /** Бой комнаты, снимок которого обновляли последним. */
+    Optional<NexusTracker> findFirstByNexusIdAndStateIsNotNullOrderByStateUpdatedAtDesc(UUID nexusId);
+
     boolean existsByNexusIdAndTrackerId(UUID nexusId, UUID trackerId);
 }

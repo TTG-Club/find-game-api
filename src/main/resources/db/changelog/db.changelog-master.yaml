@@ -71,3 +71,5 @@ databaseChangeLog:
       file: db/changelog/changes/035-create-nexus-character-sheets.sql
   - include:
       file: db/changelog/changes/036-create-nexus-trackers.sql
+  - include:
+      file: db/changelog/changes/037-add-nexus-fight-state.sql

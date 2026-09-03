@@ -6,6 +6,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -37,13 +38,32 @@ class ChatEventBroadcaster {
     }
 
     void broadcast(ChatEventResponse event) {
-        ChatRoom room = new ChatRoom(event.nexusId());
+        send(new ChatRoom(event.nexusId()), "chat-event", event.id().toString(), event);
+    }
+
+    /**
+     * Раздаёт комнате снимок идущего боя.
+     *
+     * Идёт по той же связи, что и лента: живое соединение у комнаты уже есть,
+     * и заводить второе ради карусели незачем.
+     *
+     * @param nexusId Комната.
+     * @param state Снимок боя.
+     */
+    void broadcastFightState(UUID nexusId, Object state) {
+        send(new ChatRoom(nexusId), "fight-state", null, state);
+    }
+
+    private void send(ChatRoom room, String name, String id, Object payload) {
         subscribers.getOrDefault(room, new CopyOnWriteArrayList<>()).forEach(emitter -> {
             try {
-                emitter.send(SseEmitter.event()
-                        .id(event.id().toString())
-                        .name("chat-event")
-                        .data(event));
+                SseEmitter.SseEventBuilder frame = SseEmitter.event().name(name).data(payload);
+
+                if (id != null) {
+                    frame = frame.id(id);
+                }
+
+                emitter.send(frame);
             } catch (IOException exception) {
                 remove(room, emitter);
                 emitter.completeWithError(exception);
