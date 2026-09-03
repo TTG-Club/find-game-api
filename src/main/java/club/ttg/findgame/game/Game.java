@@ -47,6 +47,21 @@ public class Game {
     @Column(name = "virtual_table_url", length = 2048)
     private String virtualTableUrl;
 
+    /** Разговор с мастером: открыт всем, кто смотрит объявление. */
+    @Column(name = "master_chat_url", length = 2048)
+    private String masterChatUrl;
+
+    /** Чат самой игры: его видят только принятые игроки. */
+    @Column(name = "game_chat_url", length = 2048)
+    private String gameChatUrl;
+
+    /**
+     * Мастер закрыл набор досрочно: группа собрана, новые заявки не нужны.
+     * Полный стол закрывается сам — там просто нет свободного места.
+     */
+    @Column(name = "recruitment_closed", nullable = false)
+    private boolean recruitmentClosed;
+
     @Column(length = 100)
     private String genre;
 

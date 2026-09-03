@@ -132,6 +132,26 @@ public class GameController {
         service.close(UUID.fromString(jwt.getSubject()), gameId);
     }
 
+    @PatchMapping("/{gameId}/recruitment/close")
+    @Operation(summary = "Закрыть набор в свою игру")
+    @SecurityRequirement(name = "bearerAuth")
+    public GameResponse closeRecruitment(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        return service.closeRecruitment(UUID.fromString(jwt.getSubject()), gameId);
+    }
+
+    @PatchMapping("/{gameId}/recruitment/open")
+    @Operation(summary = "Открыть набор в свою игру снова")
+    @SecurityRequirement(name = "bearerAuth")
+    public GameResponse openRecruitment(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        return service.openRecruitment(UUID.fromString(jwt.getSubject()), gameId);
+    }
+
     @PatchMapping("/{gameId}/cancel")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Отменить свою игру")

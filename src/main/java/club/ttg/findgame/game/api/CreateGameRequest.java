@@ -34,6 +34,14 @@ public record CreateGameRequest(
         @Schema(example = "https://vtt.example.org/games/curse-of-strahd")
         String virtualTableUrl,
 
+        @URL @Size(max = 2048)
+        @Schema(example = "https://t.me/master")
+        String masterChatUrl,
+
+        @URL @Size(max = 2048)
+        @Schema(example = "https://t.me/+strahd-party")
+        String gameChatUrl,
+
         @Size(max = 100)
         @Schema(example = "Готическое фэнтези")
         String genre,

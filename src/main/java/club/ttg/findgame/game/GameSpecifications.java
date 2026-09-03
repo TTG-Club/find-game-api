@@ -49,6 +49,10 @@ final class GameSpecifications {
                 predicates.add(criteriaBuilder.lessThanOrEqualTo(root.get("maxAge"), filter.maxAge()));
             }
 
+            // Закрытый набор из поиска уходит: мастер уже собрал группу, и
+            // заявку в неё всё равно не примут. В «Моих играх» такая игра
+            // остаётся — там она нужна и мастеру, и принятым игрокам.
+            predicates.add(criteriaBuilder.isFalse(root.get("recruitmentClosed")));
             predicates.add(hasFreeSeat(root, query, criteriaBuilder));
 
             return criteriaBuilder.and(predicates.toArray(Predicate[]::new));

@@ -36,6 +36,7 @@ class GameSpecificationsTest {
         Predicate notTextType = mock(Predicate.class);
         Predicate minimumAge = mock(Predicate.class);
         Predicate maximumAge = mock(Predicate.class);
+        Predicate openRecruitment = mock(Predicate.class);
         Predicate freeSeat = mock(Predicate.class);
         Predicate combined = mock(Predicate.class);
         Subquery takenSeats = mock(Subquery.class);
@@ -45,6 +46,7 @@ class GameSpecificationsTest {
         when(root.get(any(String.class))).thenReturn(path);
         when(criteriaBuilder.equal(any(Expression.class), eq(GameVisibility.PUBLIC))).thenReturn(publicGame);
         when(criteriaBuilder.isNull(any(Expression.class))).thenReturn(notDeleted);
+        when(criteriaBuilder.isFalse(any(Expression.class))).thenReturn(openRecruitment);
         when(path.in(Set.of(GameType.TEXT))).thenReturn(textType);
         when(criteriaBuilder.not(textType)).thenReturn(notTextType);
         when(criteriaBuilder.greaterThanOrEqualTo(any(Expression.class), eq(18))).thenReturn(minimumAge);
@@ -73,7 +75,10 @@ class GameSpecificationsTest {
         ArgumentCaptor<Predicate[]> predicates = ArgumentCaptor.forClass(Predicate[].class);
         verify(criteriaBuilder).and(predicates.capture());
         assertThat(result).isSameAs(combined);
+        // Закрытый набор и собранный стол в поиск не попадают: заявку туда
+        // всё равно не примут.
         assertThat(predicates.getValue()).containsExactly(
-                publicGame, notDeleted, notTextType, minimumAge, maximumAge, freeSeat);
+                publicGame, notDeleted, notTextType, minimumAge, maximumAge,
+                openRecruitment, freeSeat);
     }
 }

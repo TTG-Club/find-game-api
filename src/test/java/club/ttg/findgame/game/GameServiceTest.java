@@ -145,7 +145,8 @@ class GameServiceTest {
         GameService service = service();
         CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
         CreateGameRequest request = new CreateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(), source.genre(),
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(), "Кишинёв",
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
@@ -324,6 +325,144 @@ class GameServiceTest {
                 registrationRepository);
     }
 
+    @Test
+    void masterClosesRecruitmentOnceGroupIsGathered() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(3L);
+        when(repository.save(game)).thenReturn(game);
+
+        GameResponse response = service().closeRecruitment(masterId, gameId);
+
+        assertThat(response.recruitmentClosed()).isTrue();
+    }
+
+    @Test
+    void recruitmentDoesNotCloseBeforeMinimumIsGathered() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(2L);
+
+        // Игре, которой не с кем начаться, из поиска уходить рано.
+        assertThatThrownBy(() -> service().closeRecruitment(masterId, gameId))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void strangerDoesNotCloseRecruitment() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().closeRecruitment(UUID.randomUUID(), gameId))
+                .isInstanceOf(GameAccessDeniedException.class);
+    }
+
+    @Test
+    void masterOpensRecruitmentWhileSeatIsFree() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setRecruitmentClosed(true);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.countByGameIdAndStatusNot(gameId, RegistrationStatus.REJECTED))
+                .thenReturn(4L);
+        when(repository.save(game)).thenReturn(game);
+
+        assertThat(service().openRecruitment(masterId, gameId).recruitmentClosed()).isFalse();
+    }
+
+    @Test
+    void recruitmentDoesNotOpenWithoutFreeSeat() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setRecruitmentClosed(true);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.countByGameIdAndStatusNot(gameId, RegistrationStatus.REJECTED))
+                .thenReturn(5L);
+
+        // Полный стол закрыт и без отметки: звать в него некуда.
+        assertThatThrownBy(() -> service().openRecruitment(masterId, gameId))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void masterSeesBothChatLinks() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = chattyGame(gameId, masterId);
+        when(repository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+
+        GameResponse response = service().get(masterId, gameId, null);
+
+        assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
+        assertThat(response.gameChatUrl()).isEqualTo("https://t.me/+strahd-party");
+    }
+
+    @Test
+    void approvedPlayerSeesGameChatLink() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = chattyGame(gameId, UUID.randomUUID());
+        when(repository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.existsByGameIdAndPlayerIdAndStatus(
+                gameId, playerId, RegistrationStatus.APPROVED)).thenReturn(true);
+
+        assertThat(service().get(playerId, gameId, null).gameChatUrl())
+                .isEqualTo("https://t.me/+strahd-party");
+    }
+
+    @Test
+    void pendingPlayerDoesNotSeeGameChatLink() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = chattyGame(gameId, UUID.randomUUID());
+        when(repository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.existsByGameIdAndPlayerIdAndStatus(
+                gameId, playerId, RegistrationStatus.APPROVED)).thenReturn(false);
+
+        GameResponse response = service().get(playerId, gameId, null);
+
+        // Заявку ещё не разобрали: разговор группы его пока не касается, а
+        // ссылку назад не отберёшь.
+        assertThat(response.gameChatUrl()).isNull();
+        // Договариваться о заявке нужно всем, поэтому мастер остаётся на связи.
+        assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
+    }
+
+    @Test
+    void strangerSeesOnlyMasterChatLink() {
+        UUID gameId = UUID.randomUUID();
+        Game game = chattyGame(gameId, UUID.randomUUID());
+        when(repository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+
+        GameResponse response = service().get(null, gameId, null);
+
+        assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
+    }
+
+    /** Игра со ссылками на разговоры. */
+    private Game chattyGame(UUID gameId, UUID masterId) {
+        Game game = editableGame(gameId, masterId);
+
+        game.setMasterChatUrl("https://t.me/master");
+        game.setGameChatUrl("https://t.me/+strahd-party");
+
+        return game;
+    }
+
     /** Игра мастера в исходном состоянии — то, что правит редактирование. */
     private Game editableGame(UUID gameId, UUID masterId) {
         Game game = new Game();
@@ -354,6 +493,8 @@ class GameServiceTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 "Кампания",
                 "Требования",
                 null,
@@ -381,7 +522,8 @@ class GameServiceTest {
 
     private CreateGameRequest withAges(CreateGameRequest source, Integer minAge, Integer maxAge) {
         return new CreateGameRequest(
-                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(), source.genre(),
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(), source.city(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
                 source.crossplayAllowed(), source.durationType(), source.costType(), source.visibility());
@@ -393,6 +535,8 @@ class GameServiceTest {
                 GameSystem.DND_2024,
                 "https://example.org/strahd.jpg",
                 "https://vtt.example.org/games/curse-of-strahd",
+                "https://t.me/master",
+                "https://t.me/+strahd-party",
                 "Готическое фэнтези",
                 "Готическая кампания",
                 "Совершеннолетние игроки",

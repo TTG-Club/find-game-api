@@ -19,6 +19,13 @@ public record GameResponse(
         GameSystem system,
         String imageUrl,
         String virtualTableUrl,
+        /** Разговор с мастером: открыт всем, кто смотрит объявление. */
+        String masterChatUrl,
+        /**
+         * Чат самой игры. Приходит только мастеру и принятым игрокам: подавший
+         * заявку ещё не в группе, и разговор группы его не касается.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL) String gameChatUrl,
         String genre,
         String description,
         String requirements,
@@ -44,6 +51,11 @@ public record GameResponse(
         int startingLevel,
         boolean crossplayAllowed,
         GameStatus status,
+        /**
+         * Мастер закрыл набор досрочно. Полный стол закрыт и без этой отметки:
+         * там нет свободного места.
+         */
+        boolean recruitmentClosed,
         GameDurationType durationType,
         GameCostType costType,
         GameVisibility visibility,
@@ -59,9 +71,23 @@ public record GameResponse(
      */
     public GameResponse copyWithoutInviteCode() {
         return new GameResponse(
-                id, masterId, title, system, imageUrl, virtualTableUrl, genre, description, requirements,
+                id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
+                genre, description, requirements,
                 allowedSources, type, city, playersToStart, maxPlayers, takenSeats, approvedSeats, minAge,
-                maxAge, startingLevel, crossplayAllowed, status, durationType, costType, visibility, null,
-                createdAt, listPositionAt, updatedAt);
+                maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType, costType,
+                visibility, null, createdAt, listPositionAt, updatedAt);
+    }
+
+    /**
+     * Тот же ответ без чата игры: разговор группы принадлежит принятым
+     * игрокам, а объявление читают все подряд.
+     */
+    public GameResponse copyWithoutGameChat() {
+        return new GameResponse(
+                id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, null,
+                genre, description, requirements,
+                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, approvedSeats, minAge,
+                maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType, costType,
+                visibility, inviteCode, createdAt, listPositionAt, updatedAt);
     }
 }

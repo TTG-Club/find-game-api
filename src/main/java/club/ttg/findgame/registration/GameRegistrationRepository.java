@@ -21,6 +21,12 @@ public interface GameRegistrationRepository extends JpaRepository<GameRegistrati
 
     long countByGameIdAndStatus(UUID gameId, RegistrationStatus status);
 
+    /**
+     * Сколько мест занято в игре. Место занимает любая заявка, кроме
+     * отклонённой: пока мастер её разбирает, игрок на это место претендует.
+     */
+    long countByGameIdAndStatusNot(UUID gameId, RegistrationStatus status);
+
     boolean existsByGameIdAndPlayerIdAndStatus(
             UUID gameId, UUID playerId, RegistrationStatus status);
 

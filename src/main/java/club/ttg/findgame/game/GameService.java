@@ -171,6 +171,68 @@ public class GameService {
         }
     }
 
+    /**
+     * Закрывает набор досрочно: группа собрана, и новые заявки мастеру не
+     * нужны. Раньше минимума набор не закрывают — игра, которой не с кем
+     * начаться, просто исчезла бы из поиска.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @return Игра с закрытым набором.
+     */
+    @Transactional
+    public GameResponse closeRecruitment(UUID masterId, UUID gameId) {
+        Game game = ownGameForUpdate(masterId, gameId);
+        long approved = registrationRepository.countByGameIdAndStatus(
+                gameId, RegistrationStatus.APPROVED);
+
+        if (approved < game.getPlayersToStart()) {
+            throw new InvalidGameDetailsException(
+                    "Набор закрывают, когда набрано хотя бы %d игроков"
+                            .formatted(game.getPlayersToStart()));
+        }
+
+        game.setRecruitmentClosed(true);
+
+        return toOwnerResponse(repository.save(game));
+    }
+
+    /**
+     * Открывает набор снова. За полный стол это не работает: свободного места
+     * там нет, и объявление звало бы впустую.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @return Игра с открытым набором.
+     */
+    @Transactional
+    public GameResponse openRecruitment(UUID masterId, UUID gameId) {
+        Game game = ownGameForUpdate(masterId, gameId);
+        long taken = registrationRepository.countByGameIdAndStatusNot(
+                gameId, RegistrationStatus.REJECTED);
+
+        if (taken >= game.getMaxPlayers()) {
+            throw new InvalidGameDetailsException(
+                    "Свободных мест нет — набор открывать некуда");
+        }
+
+        game.setRecruitmentClosed(false);
+
+        return toOwnerResponse(repository.save(game));
+    }
+
+    /** Своя игра под правку: чужую мастер не трогает. */
+    private Game ownGameForUpdate(UUID masterId, UUID gameId) {
+        Game game = repository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+
+        if (!game.getMasterId().equals(masterId)) {
+            throw new GameAccessDeniedException();
+        }
+
+        return game;
+    }
+
     @Transactional
     public void close(UUID masterId, UUID gameId) {
         finish(masterId, gameId, GameStatus.CLOSED);
@@ -279,7 +341,13 @@ public class GameService {
             throw new GameNotFoundException(gameId);
         }
 
-        return toPublicResponse(game);
+        GameResponse response = toResponse(game, countTakenSeats(List.of(game)))
+                .copyWithoutInviteCode();
+
+        // Чат игры — разговор уже собранной группы: его видит тот, кого мастер
+        // принял. Подавшему заявку он ещё не полагается: решение по нему не
+        // принято, а ссылку назад не отберёшь.
+        return isApprovedPlayer(gameId, requesterId) ? response : response.copyWithoutGameChat();
     }
 
     @Transactional
@@ -300,12 +368,26 @@ public class GameService {
                 .and(Sort.by(Sort.Direction.DESC, "id"));
     }
 
+    /**
+     * Принят ли пользователь в игру. Аноним — нет: заявок у него не бывает.
+     */
+    private boolean isApprovedPlayer(UUID gameId, UUID requesterId) {
+        return requesterId != null
+                && registrationRepository.existsByGameIdAndPlayerIdAndStatus(
+                        gameId, requesterId, RegistrationStatus.APPROVED);
+    }
+
     private GameResponse toPublicResponse(Game game) {
         return toPublicResponse(game, countTakenSeats(List.of(game)));
     }
 
+    /**
+     * Ответ для списка: без кода приглашения и без чата игры. В карточке
+     * выдачи ссылке на разговор группы делать нечего, а проверять принятых на
+     * каждую строку — лишний запрос ради невидимого поля.
+     */
     private GameResponse toPublicResponse(Game game, Map<UUID, Seats> seats) {
-        return toResponse(game, seats).copyWithoutInviteCode();
+        return toResponse(game, seats).copyWithoutInviteCode().copyWithoutGameChat();
     }
 
     /**
