@@ -189,13 +189,33 @@ class ChatServiceTest {
         UUID authorId = UUID.randomUUID();
         UUID nexusId = UUID.randomUUID();
         allow(authorId, nexusId);
+        when(nexusService.isOwner(nexusId, authorId)).thenReturn(false);
 
-        // Системные отметки пишет сервис: иначе любой сочинил бы «сессия
-        // началась» от имени игры.
+        // Иначе любой сочинил бы «бой начат» от имени игры.
         assertThatThrownBy(() -> service().create(authorId, nexusId,
                 new CreateChatEventRequest(
-                        UUID.randomUUID(), ChatEventType.SYSTEM, "Сессия началась", null, null)))
+                        UUID.randomUUID(), ChatEventType.SYSTEM, "Бой начат", null, null)))
                 .isInstanceOf(InvalidChatEventException.class);
+
+        verify(eventRepository, never()).save(any());
+    }
+
+    @Test
+    void roomOwnerWritesFightEvents() {
+        UUID ownerId = UUID.randomUUID();
+        UUID nexusId = UUID.randomUUID();
+        allow(ownerId, nexusId);
+        when(nexusService.isOwner(nexusId, ownerId)).thenReturn(true);
+        saveAssignedEvent();
+
+        // Бой идёт в разделе трекеров, куда остальным входа нет: группа следит
+        // за ним по ленте, и события пишет тот, кто ведёт игру.
+        var response = service().create(ownerId, nexusId,
+                new CreateChatEventRequest(
+                        UUID.randomUUID(), ChatEventType.SYSTEM, "  Бой начат  ", null, null));
+
+        assertThat(response.type()).isEqualTo(ChatEventType.SYSTEM);
+        assertThat(response.text()).isEqualTo("Бой начат");
     }
 
     private ChatService service() {

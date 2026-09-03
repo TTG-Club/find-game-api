@@ -246,6 +246,22 @@ public class NexusService {
         return nexusRepository.findByGameId(gameId).map(Nexus::getId);
     }
 
+    /**
+     * Владеет ли пользователь комнатой.
+     *
+     * Нужна соседним разделам: события боя пишет тот, кто его ведёт, и
+     * повторять это правило у каждого незачем.
+     *
+     * @param nexusId Комната.
+     * @param userId Пользователь.
+     */
+    @Transactional(readOnly = true)
+    public boolean isOwner(UUID nexusId, UUID userId) {
+        return nexusRepository.findById(nexusId)
+                .map(nexus -> nexus.getOwnerId().equals(userId))
+                .orElse(false);
+    }
+
     private Nexus createForGame(Game game) {
         Nexus nexus = new Nexus();
 

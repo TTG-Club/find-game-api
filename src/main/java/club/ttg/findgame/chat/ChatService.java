@@ -64,6 +64,13 @@ public class ChatService {
             CreateChatEventRequest request
     ) {
         requireAccess(requesterId, nexusId);
+
+        if (request.type() == ChatEventType.SYSTEM
+                && !nexusService.isOwner(nexusId, requesterId)) {
+            throw new InvalidChatEventException(
+                    "События комнаты пишет тот, кто ведёт игру");
+        }
+
         ChatEventResponse existing = eventRepository
                 .findByAuthorIdAndClientMessageId(requesterId, request.clientMessageId())
                 .map(this::toResponse)
@@ -171,9 +178,18 @@ public class ChatService {
             }
             case DICE_ROLL -> event.setPayload(toJson(dicePayload(request.diceRoll())));
             case SPELL_CAST -> event.setPayload(toJson(spellPayload(request.spellCast())));
-            // Системные события пишет сервис, а не участник.
-            case SYSTEM -> throw new InvalidChatEventException(
-                    "Событие SYSTEM отправляется сервисом, а не участником");
+            // Право на такое событие уже проверено: его пишет либо сервис,
+            // либо владелец комнаты — он ведёт бой, за которым следит группа.
+            case SYSTEM -> {
+                String text = normalize(request.text());
+
+                if (text == null) {
+                    throw new InvalidChatEventException(
+                            "Текст события не может быть пустым");
+                }
+
+                event.setContent(text);
+            }
         }
     }
 
