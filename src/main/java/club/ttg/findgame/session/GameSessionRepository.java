@@ -15,6 +15,21 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
     boolean existsByGameId(UUID gameId);
 
     /**
+     * Сколько встреч мастер довёл до конца. Считается по его играм: сессия
+     * принадлежит игре, а игра — мастеру.
+     */
+    @Query("""
+            select count(session) from GameSession session
+            where session.status = :status
+              and session.gameId in (
+                  select game.id from Game game
+                  where game.masterId = :masterId and game.deletedAt is null)
+            """)
+    long countCompletedByMaster(
+            @Param("masterId") UUID masterId,
+            @Param("status") GameSessionStatus status);
+
+    /**
      * Сессии игры по возрастанию даты. Наборы с открытой датой (`starts_at`
      * пуст) идут в конец: у них времени ещё нет, и ставить их перед
      * назначенными значило бы прятать ближайшую игру под ними.

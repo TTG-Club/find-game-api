@@ -57,6 +57,17 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
             @Param("statuses") Collection<GameStatus> statuses,
             Pageable pageable);
 
+    /** Сколько игр мастера в заданном состоянии. */
+    long countByMasterIdAndStatusAndDeletedAtIsNull(UUID masterId, GameStatus status);
+
+    /**
+     * Сколько игр мастера набирают игроков прямо сейчас: открытые, с
+     * незакрытым набором. Полнота стола здесь не важна — набор он закрывает
+     * сам, и по счётчику видно ровно то, что мастер объявил.
+     */
+    long countByMasterIdAndStatusAndRecruitmentClosedFalseAndDeletedAtIsNull(
+            UUID masterId, GameStatus status);
+
     Optional<Game> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, GameVisibility visibility);
 
     Optional<Game> findByIdAndInviteCodeAndDeletedAtIsNull(UUID id, UUID inviteCode);

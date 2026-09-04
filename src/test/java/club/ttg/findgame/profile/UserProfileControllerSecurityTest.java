@@ -41,6 +41,20 @@ class UserProfileControllerSecurityTest {
     @MockitoBean
     private UserProfileService service;
 
+    @MockitoBean
+    private MasterProfileService masterService;
+
+    @Test
+    void guestReadsMasterProfile() throws Exception {
+        UUID masterId = UUID.randomUUID();
+
+        // Каталог открыт и гостю, а имя мастера стоит в каждой карточке.
+        mockMvc.perform(get("/api/v1/profiles/masters/" + masterId))
+                .andExpect(status().isOk());
+
+        verify(masterService).get(masterId);
+    }
+
     @Test
     void guestCannotReadProfile() throws Exception {
         mockMvc.perform(get("/api/v1/profiles/me"))

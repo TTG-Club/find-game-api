@@ -48,6 +48,8 @@ public class SecurityConfiguration {
     private static final String PUBLIC_GAME_BY_ID =
             "/api/v1/games/{id:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}";
 
+    private static final String PUBLIC_MASTER_PROFILE = "/api/v1/profiles/masters/*";
+
     private static final String[] INTERNAL_PATHS = {"/api/v1/internal", "/api/v1/internal/**"};
 
     private static final int MIN_SECRET_LENGTH_BYTES = 32;
@@ -71,6 +73,9 @@ public class SecurityConfiguration {
                         // Справочник городов читают вместе с каталогом — в том
                         // числе гости, которым каталог открыт и без входа.
                         .requestMatchers(HttpMethod.GET, "/api/v1/cities").permitAll()
+                        // Профиль мастера читают с карточки игры: каталог
+                        // открыт и гостю, а имя мастера в нём стоит всегда.
+                        .requestMatchers(HttpMethod.GET, PUBLIC_MASTER_PROFILE).permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->
