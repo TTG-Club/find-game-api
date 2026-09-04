@@ -83,6 +83,10 @@ public class Game {
     @Column(length = 120)
     private String city;
 
+    /** Где именно собираются: клуб, антикафе, чей-то стол. Только у офлайна. */
+    @Column(length = 300)
+    private String venue;
+
     @Column(name = "players_to_start", nullable = false)
     private int playersToStart;
 

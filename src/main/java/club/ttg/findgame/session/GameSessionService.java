@@ -18,7 +18,6 @@ import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
-import club.ttg.findgame.session.api.ScheduleGameSessionRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -367,45 +366,7 @@ public class GameSessionService {
                 owned.session().getId(), owned.session().getTitle());
     }
 
-    /**
-     * Назначает дату сессии, объявленной с открытой датой.
-     *
-     * Отдельным методом, а не общей правкой сессии: это единственное, что
-     * мастеру нужно поменять после набора, и у изменения свой смысл — закрыть
-     * открытую дату. Уже назначенное время так не двигают: игроки под него
-     * подстроились, и тихий перенос их бы подвёл.
-     */
-    @Transactional
-    public GameSessionResponse schedule(
-            UUID masterId,
-            UUID gameId,
-            UUID sessionId,
-            ScheduleGameSessionRequest request
-    ) {
-        Game game = gameRepository.findByIdForUpdate(gameId)
-                .orElseThrow(() -> new GameNotFoundException(gameId));
-        if (!game.getMasterId().equals(masterId)) {
-            throw new GameSessionAccessDeniedException();
-        }
-        GameSession session = sessionRepository.findByIdAndGameId(sessionId, gameId)
-                .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
-        if (session.getStartsAt() != null) {
-            throw new InvalidGameSessionDateException("Дата сессии уже назначена");
-        }
-
-        session.setStartsAt(request.startsAt());
-        GameSession saved = sessionRepository.save(session);
-
-        Set<UUID> players = approvedPlayerIds(sessionId);
-
-        // Открытая дата закрылась — это та новость, ради которой игрок и
-        // соглашался на набор без времени.
-        notifyPlayers(new OwnedSession(game, saved), masterId, players,
-                NotificationType.SESSION_SCHEDULED);
-
-        return toResponse(saved, players);
-    }
-
+    /** Копия сессии: состав полей тот же, время и название задаёт запрос. */
     private GameSession copySession(GameSession source, CopyGameSessionRequest request) {
         GameSession target = new GameSession();
         target.setGameId(source.getGameId());

@@ -58,8 +58,11 @@ public record UpdateGameRequest(
         @NotNull
         GameType type,
         @Size(max = 120)
-        @Schema(example = "Кишинёв")
+        @Schema(example = "Москва")
         String city,
+        @Size(max = 300)
+        @Schema(example = "Клуб «Кубик», Пятницкая 12")
+        String venue,
         @Min(1) @Max(100)
         int playersToStart,
         @Min(1) @Max(100)

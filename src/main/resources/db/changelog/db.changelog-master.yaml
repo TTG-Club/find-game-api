@@ -77,3 +77,11 @@ databaseChangeLog:
       file: db/changelog/changes/038-add-game-chat-links.sql
   - include:
       file: db/changelog/changes/039-add-game-recruitment-flag.sql
+  - include:
+      file: db/changelog/changes/040-add-game-venue.sql
+  - include:
+      file: db/changelog/changes/041-create-cities.sql
+  - include:
+      file: db/changelog/changes/042-seed-cities.sql
+  - include:
+      file: db/changelog/changes/043-create-game-raises.sql

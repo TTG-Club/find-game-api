@@ -88,10 +88,15 @@ public class GameController {
     @SecurityRequirement(name = "bearerAuth")
     public Page<GameResponse> findOwn(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) Set<GameStatus> status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return service.findOwn(UUID.fromString(jwt.getSubject()), page, size);
+        return service.findOwn(
+                UUID.fromString(jwt.getSubject()),
+                status == null ? Set.of() : status,
+                page,
+                size);
     }
 
     @GetMapping("/{gameId}")

@@ -25,6 +25,10 @@ final class GameSpecifications {
             List<Predicate> predicates = new ArrayList<>();
             predicates.add(criteriaBuilder.equal(root.get("visibility"), GameVisibility.PUBLIC));
             predicates.add(criteriaBuilder.isNull(root.get("deletedAt")));
+            // Отменённая игра не состоялась: искать её незачем, и отбор по
+            // статусу вернуть её в выдачу не может. У себя в «Моих играх»
+            // мастер её видит — там она нужна.
+            predicates.add(criteriaBuilder.notEqual(root.get("status"), GameStatus.CANCELLED));
 
             addValues(predicates, root, criteriaBuilder, "system", filter.systems(), false);
             addValues(predicates, root, criteriaBuilder, "system", filter.excludedSystems(), true);

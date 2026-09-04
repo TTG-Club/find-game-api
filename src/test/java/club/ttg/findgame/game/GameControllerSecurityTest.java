@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,13 +109,13 @@ class GameControllerSecurityTest {
         mockMvc.perform(get("/api/v1/games/my"))
                 .andExpect(status().isUnauthorized());
 
-        verify(service, never()).findOwn(any(), anyInt(), anyInt());
+        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt());
     }
 
     @Test
     void ownGamesUseJwtSubjectAsMaster() throws Exception {
         UUID masterId = UUID.randomUUID();
-        given(service.findOwn(any(UUID.class), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt())).willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games/my")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
@@ -122,7 +123,7 @@ class GameControllerSecurityTest {
                         .param("size", "5"))
                 .andExpect(status().isOk());
 
-        verify(service).findOwn(masterId, 1, 5);
+        verify(service).findOwn(masterId, Set.of(), 1, 5);
     }
 
     /**
@@ -131,7 +132,7 @@ class GameControllerSecurityTest {
      */
     @Test
     void ownGamesPathIsNotTreatedAsGameId() throws Exception {
-        given(service.findOwn(any(UUID.class), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt())).willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games/my")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))

@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
 
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +37,25 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
                                 AND r.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED))
             """)
     Page<Game> findAllOwnOrJoined(@Param("userId") UUID userId, Pageable pageable);
+
+    /**
+     * То же, но с отбором по статусу: отменённые игры показываются только
+     * тому, кто спросил их прямо.
+     */
+    @Query("""
+            SELECT g FROM Game g
+            WHERE g.deletedAt IS NULL
+              AND g.status IN :statuses
+              AND (g.masterId = :userId
+                   OR EXISTS (SELECT 1 FROM GameRegistration r
+                              WHERE r.gameId = g.id
+                                AND r.playerId = :userId
+                                AND r.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED))
+            """)
+    Page<Game> findAllOwnOrJoinedByStatus(
+            @Param("userId") UUID userId,
+            @Param("statuses") Collection<GameStatus> statuses,
+            Pageable pageable);
 
     Optional<Game> findByIdAndVisibilityAndDeletedAtIsNull(UUID id, GameVisibility visibility);
 

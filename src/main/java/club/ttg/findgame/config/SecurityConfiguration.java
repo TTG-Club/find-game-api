@@ -68,6 +68,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.DELETE, PUBLIC_GAME_BY_ID)
                         .hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.GET, "/api/v1/games", PUBLIC_GAME_BY_ID).permitAll()
+                        // Справочник городов читают вместе с каталогом — в том
+                        // числе гости, которым каталог открыт и без входа.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/cities").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->

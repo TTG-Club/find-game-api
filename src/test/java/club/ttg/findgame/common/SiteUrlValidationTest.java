@@ -100,7 +100,7 @@ class SiteUrlValidationTest {
     private static CreateGameRequest create(String imageUrl) {
         return new CreateGameRequest(
                 "Проклятие Страда", GameSystem.DND_2024, imageUrl, null, null, null, null,
-                "Описание", "Требования", null, GameType.ONLINE, null,
+                "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true,
                 GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC);
     }
@@ -108,7 +108,7 @@ class SiteUrlValidationTest {
     private static UpdateGameRequest update(String imageUrl) {
         return new UpdateGameRequest(
                 "Проклятие Страда", GameSystem.DND_2024, imageUrl, null, null, null, null,
-                "Описание", "Требования", null, GameType.ONLINE, null,
+                "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true,
                 GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC);
     }

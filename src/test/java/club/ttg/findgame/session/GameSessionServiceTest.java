@@ -16,7 +16,6 @@ import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
-import club.ttg.findgame.session.api.ScheduleGameSessionRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mapstruct.factory.Mappers;
@@ -286,80 +285,6 @@ class GameSessionServiceTest {
         assertThat(response.title()).isEqualTo("Основная сессия");
         assertThat(response.status()).isEqualTo(GameSessionStatus.SCHEDULED);
         verify(sessionRepository).save(any(GameSession.class));
-    }
-
-    @Test
-    void sessionCanBeCreatedWithOpenDate() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        Game game = game(masterId, GameCostType.FREE);
-        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.save(any(GameSession.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        // Набор с открытой датой: мастер объявляет сессию, а время назначит,
-        // когда соберёт игроков.
-        GameSessionResponse response = service().create(
-                masterId, gameId, freeRequest(null));
-
-        assertThat(response.startsAt()).isNull();
-        assertThat(response.status()).isEqualTo(GameSessionStatus.SCHEDULED);
-    }
-
-    @Test
-    void masterSchedulesOpenDateSession() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
-        GameSession session = new GameSession();
-        Game game = game(masterId, null);
-        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
-                .thenReturn(Optional.of(session));
-        when(sessionRepository.save(any(GameSession.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
-
-        Instant startsAt = Instant.parse("2099-02-01T18:00:00Z");
-
-        GameSessionResponse response = service().schedule(
-                masterId, gameId, sessionId, new ScheduleGameSessionRequest(startsAt));
-
-        assertThat(response.startsAt()).isEqualTo(startsAt);
-    }
-
-    @Test
-    void alreadyScheduledSessionIsNotRescheduled() {
-        UUID masterId = UUID.randomUUID();
-        UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
-        GameSession session = new GameSession();
-        session.setStartsAt(Instant.parse("2099-01-10T18:00:00Z"));
-        Game game = game(masterId, null);
-        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
-                .thenReturn(Optional.of(session));
-
-        // Игроки уже подстроились под объявленное время: тихий перенос их бы подвёл.
-        assertThatThrownBy(() -> service().schedule(
-                masterId, gameId, sessionId,
-                new ScheduleGameSessionRequest(Instant.parse("2099-03-01T18:00:00Z"))))
-                .isInstanceOf(InvalidGameSessionDateException.class);
-
-        verify(sessionRepository, never()).save(any());
-    }
-
-    @Test
-    void strangerCannotScheduleSession() {
-        UUID gameId = UUID.randomUUID();
-        Game game = game(UUID.randomUUID(), null);
-        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
-
-        assertThatThrownBy(() -> service().schedule(
-                UUID.randomUUID(), gameId, UUID.randomUUID(),
-                new ScheduleGameSessionRequest(Instant.parse("2099-03-01T18:00:00Z"))))
-                .isInstanceOf(GameSessionAccessDeniedException.class);
-
-        verify(sessionRepository, never()).save(any());
     }
 
     @Test

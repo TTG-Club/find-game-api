@@ -47,6 +47,9 @@ class GameServiceTest {
     private GameRepository repository;
 
     @Mock
+    private GameRaiseRepository raiseRepository;
+
+    @Mock
     private SubscriptionStatusClient subscriptionStatusClient;
 
     @Mock
@@ -147,13 +150,34 @@ class GameServiceTest {
         CreateGameRequest request = new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
                 source.masterChatUrl(), source.gameChatUrl(), source.genre(),
-                source.description(), source.requirements(), source.allowedSources(), source.type(), "Кишинёв",
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                "Кишинёв", source.venue(),
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
                 source.visibility());
 
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
                 .isInstanceOf(InvalidGameDetailsException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void rejectsVenueForOnlineGame() {
+        GameService service = service();
+        CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
+        CreateGameRequest request = new CreateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), "Клуб «Кубик», Пятницкая 12",
+                source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
+                source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
+                source.visibility());
+
+        // Онлайн собирается по ссылке: адрес стола ему не нужен.
+        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
         verify(repository, never()).save(any());
     }
 
@@ -318,6 +342,7 @@ class GameServiceTest {
     private GameService service() {
         return new GameService(
                 repository,
+                raiseRepository,
                 mapper,
                 subscriptionStatusClient,
                 creationLockService,
@@ -326,13 +351,119 @@ class GameServiceTest {
     }
 
     @Test
-    void masterClosesRecruitmentOnceGroupIsGathered() {
+    void freeMasterRaisesGameOncePerDay() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.HOURS));
+
+        game.setId(gameId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
+        when(raiseRepository.countByGameIdAndRaisedAtAfter(eq(gameId), any(Instant.class)))
+                .thenReturn(1L);
+        when(raiseRepository.findWindow(eq(gameId), any(Instant.class), any()))
+                .thenReturn(List.of());
+
+        // Норма на сутки исчерпана: без подписки поднятие одно.
+        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
+                .isInstanceOf(GameRaiseCooldownException.class);
+
+        verify(raiseRepository, never()).save(any());
+    }
+
+    @Test
+    void subscriberRaisesGameThreeTimesPerDay() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.HOURS));
+
+        game.setId(gameId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(subscriptionStatusClient.status("game-master")).thenReturn(
+                Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
+        when(raiseRepository.countByGameIdAndRaisedAtAfter(eq(gameId), any(Instant.class)))
+                .thenReturn(2L);
+        when(repository.save(game)).thenReturn(game);
+
+        service().raise(masterId, "game-master", gameId);
+
+        // Третье поднятие за сутки подписчику ещё положено.
+        verify(raiseRepository).save(any(GameRaise.class));
+    }
+
+    @Test
+    void spentRaiseQuotaFreesWhenOldestLeavesWindow() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = raisableGame(masterId, Instant.now().minus(2, ChronoUnit.HOURS));
+        Instant oldest = Instant.now().minus(20, ChronoUnit.HOURS);
+        GameRaise raise = new GameRaise();
+
+        raise.setGameId(gameId);
+        raise.setRaisedAt(oldest);
+        raise.prePersist();
+
+        game.setId(gameId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
+        when(raiseRepository.countByGameIdAndRaisedAtAfter(eq(gameId), any(Instant.class)))
+                .thenReturn(1L);
+        when(raiseRepository.findWindow(eq(gameId), any(Instant.class), any()))
+                .thenReturn(List.of(raise));
+
+        assertThatThrownBy(() -> service().raise(masterId, "game-master", gameId))
+                .isInstanceOf(GameRaiseCooldownException.class)
+                .extracting(error -> ((GameRaiseCooldownException) error).getAvailableAt())
+                .isEqualTo(oldest.plus(1, ChronoUnit.DAYS));
+    }
+
+    @Test
+    void playerCountDoesNotDropBelowApproved() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(subscriptionStatusClient.status("game-master")).thenReturn(Optional.empty());
+        when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(4L);
+
+        // Четверо уже приняты: стол на троих их не вместит.
+        assertThatThrownBy(() -> service().update(
+                masterId, "game-master", gameId, playerCounts(3, 3)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        // И порог старта ниже принятых тоже бессмыслен: он давно пройден.
+        assertThatThrownBy(() -> service().update(
+                masterId, "game-master", gameId, playerCounts(2, 5)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void maximumStaysAtLeastAsBigAsMinimum() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().update(
+                masterId, "game-master", gameId, playerCounts(5, 3)))
+                .isInstanceOf(InvalidPlayerCountException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void masterClosesRecruitmentWithFirstApprovedPlayer() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = editableGame(gameId, masterId);
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
-                .thenReturn(3L);
+                .thenReturn(1L);
         when(repository.save(game)).thenReturn(game);
 
         GameResponse response = service().closeRecruitment(masterId, gameId);
@@ -341,15 +472,15 @@ class GameServiceTest {
     }
 
     @Test
-    void recruitmentDoesNotCloseBeforeMinimumIsGathered() {
+    void recruitmentDoesNotCloseWithoutApprovedPlayers() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = editableGame(gameId, masterId);
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(registrationRepository.countByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
-                .thenReturn(2L);
+                .thenReturn(0L);
 
-        // Игре, которой не с кем начаться, из поиска уходить рано.
+        // Объявление без единого игрока исчезло бы из поиска, ничего не собрав.
         assertThatThrownBy(() -> service().closeRecruitment(masterId, gameId))
                 .isInstanceOf(InvalidGameDetailsException.class);
 
@@ -485,6 +616,20 @@ class GameServiceTest {
         return game;
     }
 
+    /** Тело правки с заданным составом: остальное совпадает с игрой. */
+    private UpdateGameRequest playerCounts(int playersToStart, int maxPlayers) {
+        UpdateGameRequest source = updateRequest();
+
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(),
+                playersToStart, maxPlayers, source.minAge(), source.maxAge(),
+                source.startingLevel(), source.crossplayAllowed(), source.durationType(),
+                source.costType(), source.visibility());
+    }
+
     /** Тело правки: по умолчанию совпадает с {@link #editableGame}. */
     private UpdateGameRequest updateRequest() {
         return new UpdateGameRequest(
@@ -499,6 +644,7 @@ class GameServiceTest {
                 "Требования",
                 null,
                 GameType.ONLINE,
+                null,
                 null,
                 3,
                 5,
@@ -524,7 +670,8 @@ class GameServiceTest {
         return new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
                 source.masterChatUrl(), source.gameChatUrl(), source.genre(),
-                source.description(), source.requirements(), source.allowedSources(), source.type(), source.city(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
                 source.crossplayAllowed(), source.durationType(), source.costType(), source.visibility());
     }
@@ -542,6 +689,7 @@ class GameServiceTest {
                 "Совершеннолетние игроки",
                 Set.of("Player's Handbook 2024", "Tasha's Cauldron of Everything"),
                 GameType.ONLINE,
+                null,
                 null,
                 playersToStart,
                 maxPlayers,

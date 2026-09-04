@@ -12,6 +12,7 @@ import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -19,10 +20,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.time.Instant;
@@ -38,10 +41,18 @@ public class GameService {
     private static final int FREE_MAX_PLAYERS = 5;
     private static final int SUBSCRIBER_MAX_PLAYERS = 15;
 
-    private static final Duration FREE_RAISE_INTERVAL = Duration.ofDays(1);
-    private static final Duration SUBSCRIBER_RAISE_INTERVAL = Duration.ofHours(1);
+    /**
+     * Сколько раз за сутки игру можно поднять в списке. Подписка даёт больше
+     * попыток, но не безлимит: иначе верх списка занял бы один мастер.
+     */
+    private static final int FREE_RAISES_PER_DAY = 1;
+    private static final int SUBSCRIBER_RAISES_PER_DAY = 3;
+
+    /** Окно, в котором считаются поднятия. */
+    private static final Duration RAISE_WINDOW = Duration.ofDays(1);
 
     private final GameRepository repository;
+    private final GameRaiseRepository raiseRepository;
     private final GameMapper mapper;
     private final SubscriptionStatusClient subscriptionStatusClient;
     private final GameCreationLockService creationLockService;
@@ -52,6 +63,7 @@ public class GameService {
 
     public GameService(
             GameRepository repository,
+            GameRaiseRepository raiseRepository,
             GameMapper mapper,
             SubscriptionStatusClient subscriptionStatusClient,
             GameCreationLockService creationLockService,
@@ -59,6 +71,7 @@ public class GameService {
             GameRegistrationRepository registrationRepository
     ) {
         this.repository = repository;
+        this.raiseRepository = raiseRepository;
         this.mapper = mapper;
         this.subscriptionStatusClient = subscriptionStatusClient;
         this.creationLockService = creationLockService;
@@ -71,7 +84,7 @@ public class GameService {
         if (request.playersToStart() > request.maxPlayers()) {
             throw new InvalidPlayerCountException();
         }
-        validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
+        validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         enforceActiveGameLimit(masterId, username);
 
@@ -116,10 +129,10 @@ public class GameService {
         if (request.playersToStart() > request.maxPlayers()) {
             throw new InvalidPlayerCountException();
         }
-        validateDetails(request.type(), request.city(), request.minAge(), request.maxAge());
+        validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         validateCostTypeChange(game, request.costType());
-        validateMaxPlayersChange(gameId, request.maxPlayers());
+        validatePlayerCountChange(gameId, request.playersToStart(), request.maxPlayers());
 
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
@@ -143,16 +156,27 @@ public class GameService {
     }
 
     /**
-     * Максимум игроков не опускается ниже уже принятых в игру: сервис не даёт
-     * принять игроков сверх лимита, и созданный правкой перебор чинить было бы
-     * нечем.
+     * Состав не ужимается ниже уже принятых в игру. Максимум — потому что
+     * сервис не даёт принять игроков сверх него, и созданный правкой перебор
+     * чинить было бы нечем. Минимум — потому что порог старта, который уже
+     * пройден, перестал бы что-либо значить.
      */
-    private void validateMaxPlayersChange(UUID gameId, int requestedMaxPlayers) {
+    private void validatePlayerCountChange(
+            UUID gameId,
+            int requestedPlayersToStart,
+            int requestedMaxPlayers
+    ) {
         long approved = registrationRepository.countByGameIdAndStatus(
                 gameId, RegistrationStatus.APPROVED);
+
         if (approved > requestedMaxPlayers) {
             throw new InvalidPlayerCountException(
                     "В игру уже принято %d игроков — максимум не может быть меньше".formatted(approved));
+        }
+
+        if (approved > requestedPlayersToStart) {
+            throw new InvalidPlayerCountException(
+                    "В игру уже принято %d игроков — минимум не может быть меньше".formatted(approved));
         }
     }
 
@@ -172,9 +196,9 @@ public class GameService {
     }
 
     /**
-     * Закрывает набор досрочно: группа собрана, и новые заявки мастеру не
-     * нужны. Раньше минимума набор не закрывают — игра, которой не с кем
-     * начаться, просто исчезла бы из поиска.
+     * Закрывает набор досрочно: мастеру хватает тех, кого он уже принял.
+     * Совсем пустую игру закрывать не дают — объявление без единого игрока
+     * просто исчезло бы из поиска, ничего не собрав.
      *
      * @param masterId Владелец игры из токена.
      * @param gameId Игра.
@@ -186,10 +210,9 @@ public class GameService {
         long approved = registrationRepository.countByGameIdAndStatus(
                 gameId, RegistrationStatus.APPROVED);
 
-        if (approved < game.getPlayersToStart()) {
+        if (approved < 1) {
             throw new InvalidGameDetailsException(
-                    "Набор закрывают, когда набрано хотя бы %d игроков"
-                            .formatted(game.getPlayersToStart()));
+                    "Набор закрывают, когда принят хотя бы один игрок");
         }
 
         game.setRecruitmentClosed(true);
@@ -274,15 +297,39 @@ public class GameService {
             throw new GameCannotBeRaisedException();
         }
 
-        Duration interval = subscriptionActive ? SUBSCRIBER_RAISE_INTERVAL : FREE_RAISE_INTERVAL;
+        int limit = subscriptionActive ? SUBSCRIBER_RAISES_PER_DAY : FREE_RAISES_PER_DAY;
         Instant now = Instant.now();
-        Instant availableAt = game.getListPositionAt().plus(interval);
-        if (availableAt.isAfter(now)) {
-            throw new GameRaiseCooldownException(availableAt);
+        Instant since = now.minus(RAISE_WINDOW);
+        long used = raiseRepository.countByGameIdAndRaisedAtAfter(gameId, since);
+
+        if (used >= limit) {
+            // Норма освободится, когда из окна выйдет самое раннее поднятие.
+            throw new GameRaiseCooldownException(nextRaiseAt(gameId, since));
         }
 
+        GameRaise raise = new GameRaise();
+
+        raise.setGameId(gameId);
+        raise.setRaisedAt(now);
+        raiseRepository.save(raise);
+
         game.setListPositionAt(now);
+
         return toPublicResponse(repository.save(game));
+    }
+
+    /**
+     * Когда освободится место в суточной норме: самое раннее поднятие окна
+     * плюс само окно.
+     *
+     * @param gameId Игра.
+     * @param since Начало окна.
+     */
+    private Instant nextRaiseAt(UUID gameId, Instant since) {
+        return raiseRepository.findWindow(gameId, since, Limit.of(1)).stream()
+                .findFirst()
+                .map(raise -> raise.getRaisedAt().plus(RAISE_WINDOW))
+                .orElse(since.plus(RAISE_WINDOW));
     }
 
     @Transactional(readOnly = true)
@@ -302,9 +349,19 @@ public class GameService {
      * дал бы право звать в неё кого угодно.
      */
     @Transactional(readOnly = true)
-    public Page<GameResponse> findOwn(UUID userId, int page, int size) {
+    public Page<GameResponse> findOwn(
+            UUID userId,
+            Set<GameStatus> statuses,
+            int page,
+            int size
+    ) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
-        Page<Game> games = repository.findAllOwnOrJoined(userId, pageable);
+        // Без отбора отменённые не показываются: они не состоялись, и в общем
+        // списке своих игр им место только по прямому запросу.
+        Set<GameStatus> wanted = statuses.isEmpty()
+                ? EnumSet.complementOf(EnumSet.of(GameStatus.CANCELLED))
+                : statuses;
+        Page<Game> games = repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable);
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
 
         return games.map(game -> game.getMasterId().equals(userId)
@@ -439,15 +496,28 @@ public class GameService {
     }
 
     /**
-     * Проверки, общие для создания и редактирования: город только у офлайна и
-     * непротиворечивые возрастные границы.
+     * Проверки, общие для создания и редактирования: город с местом встречи
+     * только у офлайна и непротиворечивые возрастные границы.
      */
-    private void validateDetails(GameType type, String city, Integer minAge, Integer maxAge) {
+    private void validateDetails(
+            GameType type,
+            String city,
+            String venue,
+            Integer minAge,
+            Integer maxAge
+    ) {
         if (type == GameType.ONLINE && city != null) {
             throw new InvalidGameDetailsException("Город можно указывать только для офлайн-игры");
         }
         if (city != null && city.isBlank()) {
             throw new InvalidGameDetailsException("Город не может быть пустой строкой");
+        }
+        if (type == GameType.ONLINE && venue != null) {
+            throw new InvalidGameDetailsException(
+                    "Место проведения можно указывать только для офлайн-игры");
+        }
+        if (venue != null && venue.isBlank()) {
+            throw new InvalidGameDetailsException("Место проведения не может быть пустой строкой");
         }
         if (minAge != null && maxAge != null && minAge > maxAge) {
             throw new InvalidGameDetailsException("Минимальный возраст не может превышать максимальный");

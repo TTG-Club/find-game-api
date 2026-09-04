@@ -32,6 +32,8 @@ public record GameResponse(
         Set<String> allowedSources,
         GameType type,
         String city,
+        /** Где именно собираются. Только у игр вживую. */
+        String venue,
         int playersToStart,
         int maxPlayers,
         /**
@@ -73,9 +75,9 @@ public record GameResponse(
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
                 genre, description, requirements,
-                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, approvedSeats, minAge,
-                maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType, costType,
-                visibility, null, createdAt, listPositionAt, updatedAt);
+                allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
+                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                costType, visibility, null, createdAt, listPositionAt, updatedAt);
     }
 
     /**
@@ -86,8 +88,8 @@ public record GameResponse(
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, null,
                 genre, description, requirements,
-                allowedSources, type, city, playersToStart, maxPlayers, takenSeats, approvedSeats, minAge,
-                maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType, costType,
-                visibility, inviteCode, createdAt, listPositionAt, updatedAt);
+                allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
+                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt);
     }
 }
