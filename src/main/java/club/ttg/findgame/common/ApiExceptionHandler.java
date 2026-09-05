@@ -12,6 +12,8 @@ import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
 import club.ttg.findgame.game.GameCannotBeRaisedException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
+import club.ttg.findgame.review.ReviewNotAllowedException;
+import club.ttg.findgame.review.ReviewWindowClosedException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
 import club.ttg.findgame.session.InvalidGameSessionDateException;
@@ -69,6 +71,23 @@ public class ApiExceptionHandler {
                 "Игру пока нельзя поднять",
                 exception.getMessage());
         detail.setProperty("availableAt", exception.getAvailableAt());
+        return detail;
+    }
+
+    @ExceptionHandler(ReviewNotAllowedException.class)
+    ProblemDetail handleReviewNotAllowed(ReviewNotAllowedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Оценка недоступна", exception.getMessage());
+    }
+
+    @ExceptionHandler(ReviewWindowClosedException.class)
+    ProblemDetail handleReviewWindowClosed(ReviewWindowClosedException exception) {
+        ProblemDetail detail = problem(
+                HttpStatus.CONFLICT,
+                "Оценить встречу уже нельзя",
+                exception.getMessage());
+
+        detail.setProperty("closedAt", exception.getClosedAt());
+
         return detail;
     }
 

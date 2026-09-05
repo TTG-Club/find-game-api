@@ -46,6 +46,13 @@ public class GameSession {
     @Column(nullable = false, length = 30)
     private GameSessionStatus status;
 
+    /**
+     * Когда встречу объявили завершённой. Дата самой встречи для этого не
+     * годится: мастер закрывает сессию тогда, когда она действительно кончилась.
+     */
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
     @Column(name = "price_amount", precision = 12, scale = 2)
     private BigDecimal priceAmount;
 

@@ -16,6 +16,8 @@ import java.util.UUID;
  * @param closedGames Игр доведено до конца.
  * @param cancelledGames Игр не состоялось.
  * @param completedSessions Проведённых встреч.
+ * @param recommended Сколько игроков сыграли бы с ним снова.
+ * @param reviews Сколько всего раскрытых оценок.
  */
 public record MasterPublicProfileResponse(
         UUID userId,
@@ -24,6 +26,8 @@ public record MasterPublicProfileResponse(
         long recruitingGames,
         long closedGames,
         long cancelledGames,
-        long completedSessions
+        long completedSessions,
+        long recommended,
+        long reviews
 ) {
 }

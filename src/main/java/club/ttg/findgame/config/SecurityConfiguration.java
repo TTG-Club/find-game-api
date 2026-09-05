@@ -50,6 +50,8 @@ public class SecurityConfiguration {
 
     private static final String PUBLIC_MASTER_PROFILE = "/api/v1/profiles/masters/*";
 
+    private static final String PUBLIC_MASTER_REVIEWS = "/api/v1/profiles/masters/*/reviews";
+
     private static final String[] INTERNAL_PATHS = {"/api/v1/internal", "/api/v1/internal/**"};
 
     private static final int MIN_SECRET_LENGTH_BYTES = 32;
@@ -75,7 +77,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/cities").permitAll()
                         // Профиль мастера читают с карточки игры: каталог
                         // открыт и гостю, а имя мастера в нём стоит всегда.
-                        .requestMatchers(HttpMethod.GET, PUBLIC_MASTER_PROFILE).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_MASTER_PROFILE, PUBLIC_MASTER_REVIEWS)
+                        .permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->

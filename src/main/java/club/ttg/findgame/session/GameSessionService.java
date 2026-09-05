@@ -283,6 +283,7 @@ public class GameSessionService {
         }
 
         session.setStatus(GameSessionStatus.COMPLETED);
+        session.setCompletedAt(Instant.now());
 
         Set<UUID> players = approvedPlayerIds(sessionId);
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);
@@ -476,6 +477,7 @@ public class GameSessionService {
         return new GameSessionResponse(
                 response.id(), response.gameId(), response.title(), response.startsAt(),
                 response.estimatedDurationMinutes(), response.status(),
-                response.priceAmount(), response.priceCurrency(), response.paymentType(), registeredPlayerIds);
+                response.priceAmount(), response.priceCurrency(), response.paymentType(),
+                response.completedAt(), registeredPlayerIds);
     }
 }

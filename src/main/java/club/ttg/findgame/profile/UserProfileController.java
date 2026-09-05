@@ -1,6 +1,9 @@
 package club.ttg.findgame.profile;
 
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
+import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.api.ReputationResponse;
+import club.ttg.findgame.review.api.SessionReviewResponse;
 import club.ttg.findgame.profile.api.UpdateUserProfileRequest;
 import club.ttg.findgame.profile.api.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -27,13 +31,16 @@ public class UserProfileController {
 
     private final UserProfileService service;
     private final MasterProfileService masterService;
+    private final SessionReviewService reviewService;
 
     public UserProfileController(
             UserProfileService service,
-            MasterProfileService masterService
+            MasterProfileService masterService,
+            SessionReviewService reviewService
     ) {
         this.service = service;
         this.masterService = masterService;
+        this.reviewService = reviewService;
     }
 
     @GetMapping("/me")
@@ -48,6 +55,20 @@ public class UserProfileController {
     @Operation(summary = "Получить публичный профиль мастера со счётчиками игр")
     public MasterPublicProfileResponse getMasterProfile(@PathVariable UUID userId) {
         return masterService.get(userId);
+    }
+
+    @GetMapping("/masters/{userId}/reviews")
+    @Operation(summary = "Получить отзывы игроков о мастере")
+    public List<SessionReviewResponse> getMasterReviews(@PathVariable UUID userId) {
+        return reviewService.findMasterReviews(userId);
+    }
+
+    @GetMapping("/me/reputation")
+    @Operation(summary = "Получить свою репутацию игрока: доля и число оценок")
+    public ReputationResponse getOwnReputation(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt
+    ) {
+        return reviewService.getOwnPlayerReputation(UUID.fromString(jwt.getSubject()));
     }
 
     @PutMapping("/me")

@@ -3,6 +3,8 @@ package club.ttg.findgame.profile;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
+import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.api.ReputationResponse;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
 import org.springframework.stereotype.Service;
@@ -23,15 +25,18 @@ public class MasterProfileService {
     private final UserProfileRepository profileRepository;
     private final GameRepository gameRepository;
     private final GameSessionRepository sessionRepository;
+    private final SessionReviewService reviewService;
 
     public MasterProfileService(
             UserProfileRepository profileRepository,
             GameRepository gameRepository,
-            GameSessionRepository sessionRepository
+            GameSessionRepository sessionRepository,
+            SessionReviewService reviewService
     ) {
         this.profileRepository = profileRepository;
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
+        this.reviewService = reviewService;
     }
 
     /**
@@ -46,6 +51,7 @@ public class MasterProfileService {
     @Transactional(readOnly = true)
     public MasterPublicProfileResponse get(UUID userId) {
         UserProfile profile = profileRepository.findById(userId).orElse(null);
+        ReputationResponse reputation = reviewService.getMasterReputation(userId);
 
         return new MasterPublicProfileResponse(
                 userId,
@@ -59,7 +65,9 @@ public class MasterProfileService {
                 gameRepository.countByMasterIdAndStatusAndDeletedAtIsNull(
                         userId, GameStatus.CANCELLED),
                 sessionRepository.countCompletedByMaster(
-                        userId, GameSessionStatus.COMPLETED));
+                        userId, GameSessionStatus.COMPLETED),
+                reputation.recommended(),
+                reputation.total());
     }
 
     /** Рассказ мастера о себе; пусто — он его не писал. */

@@ -19,6 +19,7 @@ public record GameSessionResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) BigDecimal priceAmount,
         @JsonInclude(JsonInclude.Include.NON_NULL) String priceCurrency,
         @JsonInclude(JsonInclude.Include.NON_NULL) SessionPaymentType paymentType,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant completedAt,
         Set<UUID> registeredPlayerIds
 ) {
 }

@@ -3,6 +3,8 @@ package club.ttg.findgame.profile;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
+import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.api.ReputationResponse;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,9 @@ class MasterProfileServiceTest {
 
     @Mock
     private GameSessionRepository sessionRepository;
+
+    @Mock
+    private SessionReviewService reviewService;
 
     @Test
     void mastersProfileCarriesGameCounters() {
@@ -68,7 +73,8 @@ class MasterProfileServiceTest {
     }
 
     private MasterProfileService service() {
-        return new MasterProfileService(profileRepository, gameRepository, sessionRepository);
+        return new MasterProfileService(
+                profileRepository, gameRepository, sessionRepository, reviewService);
     }
 
     private void stubCounters(
@@ -78,6 +84,9 @@ class MasterProfileServiceTest {
             long cancelled,
             long sessions
     ) {
+        lenient().when(reviewService.getMasterReputation(masterId))
+                .thenReturn(new ReputationResponse(masterId, 0, 0));
+
         lenient().when(gameRepository
                         .countByMasterIdAndStatusAndRecruitmentClosedFalseAndDeletedAtIsNull(
                                 masterId, GameStatus.OPEN))

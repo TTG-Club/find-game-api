@@ -12,6 +12,8 @@ public interface GameSessionMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "gameId", ignore = true)
     @Mapping(target = "status", ignore = true)
+    // Отметку завершения ставит сам сервис, когда мастер закрывает встречу.
+    @Mapping(target = "completedAt", ignore = true)
     GameSession toEntity(CreateGameSessionRequest request);
 
     @Mapping(target = "registeredPlayerIds", ignore = true)
