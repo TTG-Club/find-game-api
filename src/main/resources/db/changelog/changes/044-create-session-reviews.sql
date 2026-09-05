@@ -7,10 +7,10 @@
 ALTER TABLE game_sessions
     ADD COLUMN completed_at TIMESTAMPTZ;
 
--- Уже закрытым сессиям проставляем время последнего изменения: точнее взять
--- неоткуда, а без отметки они остались бы без окна вовсе.
+-- Для уже закрытых сессий точное время завершения неизвестно. Используем время
+-- начала встречи: это не откроет заново окно отзывов для старых сессий.
 UPDATE game_sessions
-SET completed_at = updated_at
+SET completed_at = starts_at
 WHERE status = 'COMPLETED';
 
 --rollback ALTER TABLE game_sessions DROP COLUMN completed_at;
