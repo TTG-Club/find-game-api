@@ -19,6 +19,10 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     long countByRecipientIdAndReadAtIsNull(UUID recipientId);
 
+    /** Уже звали этого игрока в эту игру: второй раз зовут только надоедая. */
+    boolean existsByRecipientIdAndTypeAndGameId(
+            UUID recipientId, NotificationType type, UUID gameId);
+
     /**
      * Отмечает прочитанной всю ленту разом. Одним запросом, а не выборкой с
      * сохранением: непрочитанных может накопиться сколько угодно.

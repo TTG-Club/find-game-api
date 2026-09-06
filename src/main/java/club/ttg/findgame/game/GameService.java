@@ -1,5 +1,6 @@
 package club.ttg.findgame.game;
 
+import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
@@ -60,6 +61,8 @@ public class GameService {
     // сессиями и принятыми в них игроками.
     private final GameSessionRepository sessionRepository;
     private final GameRegistrationRepository registrationRepository;
+    // Новую игру ждут те, кто отметил мастера: без рассылки отметка бесполезна.
+    private final FollowService followService;
 
     public GameService(
             GameRepository repository,
@@ -68,7 +71,8 @@ public class GameService {
             SubscriptionStatusClient subscriptionStatusClient,
             GameCreationLockService creationLockService,
             GameSessionRepository sessionRepository,
-            GameRegistrationRepository registrationRepository
+            GameRegistrationRepository registrationRepository,
+            FollowService followService
     ) {
         this.repository = repository;
         this.raiseRepository = raiseRepository;
@@ -77,6 +81,7 @@ public class GameService {
         this.creationLockService = creationLockService;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
+        this.followService = followService;
     }
 
     @Transactional
@@ -94,7 +99,11 @@ public class GameService {
         if (game.getVisibility() == GameVisibility.PRIVATE) {
             game.setInviteCode(UUID.randomUUID());
         }
-        return toOwnerResponse(repository.save(game));
+        Game saved = repository.save(game);
+
+        followService.announceGame(saved);
+
+        return toOwnerResponse(saved);
     }
 
     /**

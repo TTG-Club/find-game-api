@@ -19,5 +19,11 @@ public enum NotificationType {
     SESSION_COMPLETED,
 
     /** Сессия отменена. */
-    SESSION_CANCELLED
+    SESSION_CANCELLED,
+
+    /** Отмеченный мастер объявил новую игру. */
+    MASTER_PUBLISHED_GAME,
+
+    /** Мастер зовёт отмеченного игрока в свою игру. */
+    GAME_INVITE
 }

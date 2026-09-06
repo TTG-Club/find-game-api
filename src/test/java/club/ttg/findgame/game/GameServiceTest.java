@@ -1,5 +1,6 @@
 package club.ttg.findgame.game;
 
+import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
@@ -60,6 +61,9 @@ class GameServiceTest {
 
     @Mock
     private GameRegistrationRepository registrationRepository;
+
+    @Mock
+    private FollowService followService;
 
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
 
@@ -347,7 +351,8 @@ class GameServiceTest {
                 subscriptionStatusClient,
                 creationLockService,
                 sessionRepository,
-                registrationRepository);
+                registrationRepository,
+                followService);
     }
 
     @Test

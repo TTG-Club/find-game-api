@@ -78,6 +78,15 @@ public class NotificationService {
                 .map(NotificationService::toResponse);
     }
 
+    /**
+     * Присылали ли уже такое уведомление об этой игре. По нему приглашение
+     * не повторяется: второй раз зовут, только надоедая.
+     */
+    @Transactional(readOnly = true)
+    public boolean wasNotified(UUID recipientId, NotificationType type, UUID gameId) {
+        return repository.existsByRecipientIdAndTypeAndGameId(recipientId, type, gameId);
+    }
+
     @Transactional(readOnly = true)
     public long countUnread(UUID recipientId) {
         return repository.countByRecipientIdAndReadAtIsNull(recipientId);

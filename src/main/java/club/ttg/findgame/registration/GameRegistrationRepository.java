@@ -39,6 +39,25 @@ public interface GameRegistrationRepository extends JpaRepository<GameRegistrati
             UUID gameId, UUID playerId, RegistrationStatus status);
 
     /**
+     * Играл ли этот игрок у этого мастера: есть ли в какой-нибудь его игре
+     * неотклонённая заявка. По этому мастер и отмечает игрока — звать в
+     * следующую игру можно того, с кем уже имел дело.
+     */
+    @Query("""
+            select count(registration) > 0
+            from GameRegistration registration, Game game
+            where game.id = registration.gameId
+              and game.masterId = :masterId
+              and registration.playerId = :playerId
+              and registration.status <> :excludedStatus
+            """)
+    boolean existsAtMasterGames(
+            @Param("masterId") UUID masterId,
+            @Param("playerId") UUID playerId,
+            @Param("excludedStatus") RegistrationStatus excludedStatus
+    );
+
+    /**
      * Сколько мест занято в каждой из игр и сколько из них подтверждено.
      * Место занимает любая заявка, кроме отклонённой: пока мастер её
      * разбирает, игрок на это место уже претендует.

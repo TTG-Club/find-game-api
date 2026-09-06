@@ -12,6 +12,7 @@ import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
 import club.ttg.findgame.game.GameCannotBeRaisedException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
+import club.ttg.findgame.follow.FollowNotAllowedException;
 import club.ttg.findgame.review.ReviewNotAllowedException;
 import club.ttg.findgame.review.ReviewWindowClosedException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
@@ -72,6 +73,11 @@ public class ApiExceptionHandler {
                 exception.getMessage());
         detail.setProperty("availableAt", exception.getAvailableAt());
         return detail;
+    }
+
+    @ExceptionHandler(FollowNotAllowedException.class)
+    ProblemDetail handleFollowNotAllowed(FollowNotAllowedException exception) {
+        return problem(HttpStatus.CONFLICT, "Отметка недоступна", exception.getMessage());
     }
 
     @ExceptionHandler(ReviewNotAllowedException.class)

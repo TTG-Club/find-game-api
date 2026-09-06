@@ -87,3 +87,5 @@ databaseChangeLog:
       file: db/changelog/changes/043-create-game-raises.sql
   - include:
       file: db/changelog/changes/044-create-session-reviews.sql
+  - include:
+      file: db/changelog/changes/045-create-user-follows.sql
