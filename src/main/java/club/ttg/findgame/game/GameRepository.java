@@ -13,8 +13,48 @@ import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 
 public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificationExecutor<Game> {
+
+    /** Ролевые вкладки и краткая сводка личного кабинета с серверной пагинацией. */
+    @Query("""
+            select game from Game game
+            where game.deletedAt is null and game.status in :statuses
+              and (
+                (:role = 'MASTER' and game.masterId = :userId)
+                or (:role = 'PLAYER' and exists (select 1 from GameRegistration registration
+                    where registration.gameId = game.id and registration.playerId = :userId
+                      and registration.status = club.ttg.findgame.registration.RegistrationStatus.APPROVED))
+                or (:role = 'APPLICATIONS' and exists (select 1 from GameRegistration registration
+                    where registration.gameId = game.id and registration.playerId = :userId
+                      and registration.status = club.ttg.findgame.registration.RegistrationStatus.PENDING))
+                or (:role = 'ATTENTION' and game.masterId = :userId and
+                    (exists (select 1 from GameRegistration registration where registration.gameId = game.id
+                        and registration.status = club.ttg.findgame.registration.RegistrationStatus.PENDING)
+                     or exists (select 1 from GameSession session where session.gameId = game.id
+                        and session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
+                        and session.startsAt is null)))
+                or (:role = 'UPCOMING'
+                    and (game.masterId = :userId or exists (select 1 from GameRegistration registration
+                        where registration.gameId = game.id and registration.playerId = :userId
+                          and registration.status = club.ttg.findgame.registration.RegistrationStatus.APPROVED))
+                    and exists (select 1 from GameSession session where session.gameId = game.id
+                        and session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
+                        and session.startsAt >= :now))
+              )
+            order by case when :role = 'UPCOMING' then
+                (select min(session.startsAt) from GameSession session where session.gameId = game.id
+                    and session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
+                    and session.startsAt >= :now) else null end asc,
+                game.listPositionAt desc, game.id asc
+            """)
+    Page<Game> findPersonal(
+            @Param("userId") UUID userId,
+            @Param("statuses") Collection<GameStatus> statuses,
+            @Param("role") String role,
+            @Param("now") Instant now,
+            Pageable pageable);
 
     boolean existsByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
 

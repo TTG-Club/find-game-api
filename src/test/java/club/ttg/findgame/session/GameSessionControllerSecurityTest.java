@@ -42,6 +42,36 @@ class GameSessionControllerSecurityTest {
     private GameSessionService service;
 
     @Test
+    void pastStartIsRejectedForCreationAndCopy() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        String pastStart = Instant.now().minusSeconds(60).toString();
+
+        mockMvc.perform(post("/api/v1/games/{gameId}/sessions", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .contentType("application/json")
+                        .content("{\"title\":\"Сессия\",\"startsAt\":\"" + pastStart + "\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v1/games/{gameId}/sessions/{sourceSessionId}/copy", gameId, UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .contentType("application/json")
+                        .content("{\"startsAt\":\"" + pastStart + "\"}"))
+                .andExpect(status().isBadRequest());
+        verify(service, never()).create(any(), any(), any());
+        verify(service, never()).copy(any(), any(), any(), any());
+    }
+
+    @Test
+    void copyRequiresStart() throws Exception {
+        mockMvc.perform(post("/api/v1/games/{gameId}/sessions/{sourceSessionId}/copy", UUID.randomUUID(), UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        verify(service, never()).copy(any(), any(), any(), any());
+    }
+
+    @Test
     void guestCannotCreateSession() throws Exception {
         mockMvc.perform(post("/api/v1/games/{gameId}/sessions", UUID.randomUUID())
                         .contentType("application/json")

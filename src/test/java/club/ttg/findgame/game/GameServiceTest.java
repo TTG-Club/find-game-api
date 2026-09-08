@@ -76,6 +76,48 @@ class GameServiceTest {
         assertThat(game.getListPositionAt()).isEqualTo(game.getCreatedAt());
     }
 
+    @SuppressWarnings("unchecked")
+    @Test
+    void publicPageIncludesFirstUpcomingSessionWithoutPrivateData() {
+        Game game = editableGame(UUID.randomUUID(), UUID.randomUUID());
+        game.setInviteCode(UUID.randomUUID());
+        game.setGameChatUrl("https://example.org/private-chat");
+        GameSession nearest = mock(GameSession.class);
+        when(nearest.getGameId()).thenReturn(game.getId());
+        when(nearest.getId()).thenReturn(UUID.randomUUID());
+        when(nearest.getStartsAt()).thenReturn(Instant.parse("2027-01-01T18:00:00Z"));
+        GameSession later = mock(GameSession.class);
+        when(later.getGameId()).thenReturn(game.getId());
+        when(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(game)));
+        when(sessionRepository.findUpcoming(eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
+                .thenReturn(List.of(nearest, later));
+
+        GameResponse response = service().findPublic(GameSearchFilter.empty(), 0, 20).getContent().getFirst();
+
+        assertThat(response.nextSession().id()).isEqualTo(nearest.getId());
+        assertThat(response.inviteCode()).isNull();
+        assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.myRegistrationStatus()).isNull();
+        verify(sessionRepository).findUpcoming(eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class));
+        verify(registrationRepository, never()).findAllByPlayerIdAndGameIdIn(any(), any());
+    }
+
+    @Test
+    void personalRoleIsAppliedBeforePagination() {
+        UUID userId = UUID.randomUUID();
+        when(repository.findPersonal(eq(userId), any(), eq("PLAYER"), any(), any()))
+                .thenReturn(Page.empty());
+
+        service().findOwn(userId, Set.of(GameStatus.OPEN), 2, 5, GamePersonalRole.PLAYER);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findPersonal(eq(userId), eq(Set.of(GameStatus.OPEN)), eq("PLAYER"), any(), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
+        verify(repository, never()).findAllOwnOrJoinedByStatus(any(), any(), any());
+    }
+
     @Test
     void createsPrivateGameAndReturnsInviteCode() {
         GameService service = service();

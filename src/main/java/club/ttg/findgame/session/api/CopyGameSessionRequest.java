@@ -1,6 +1,6 @@
 package club.ttg.findgame.session.api;
 
-import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -12,7 +12,8 @@ public record CopyGameSessionRequest(
         @Pattern(regexp = ".*\\S.*", message = "не должно быть пустой строкой")
         String title,
 
-        @FutureOrPresent
+        @NotNull
+        @Future(message = "Дата и время начала сессии должны быть в будущем")
         Instant startsAt
 ) {
 }

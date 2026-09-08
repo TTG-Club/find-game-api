@@ -51,5 +51,7 @@ public interface GameMapper {
      * Число занятых мест в самой игре не хранится: оно выводится из заявок,
      * поэтому приходит отдельным параметром.
      */
+    @Mapping(target = "nextSession", ignore = true)
+    @Mapping(target = "myRegistrationStatus", ignore = true)
     GameResponse toResponse(Game game, int takenSeats, int approvedSeats);
 }

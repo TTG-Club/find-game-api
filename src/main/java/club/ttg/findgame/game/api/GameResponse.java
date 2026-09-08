@@ -7,6 +7,7 @@ import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import club.ttg.findgame.registration.RegistrationStatus;
 
 import java.time.Instant;
 import java.util.Set;
@@ -64,7 +65,9 @@ public record GameResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) UUID inviteCode,
         Instant createdAt,
         Instant listPositionAt,
-        Instant updatedAt
+        Instant updatedAt,
+        NextGameSessionResponse nextSession,
+        @JsonInclude(JsonInclude.Include.NON_NULL) RegistrationStatus myRegistrationStatus
 ) {
 
     /**
@@ -77,7 +80,7 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, null, createdAt, listPositionAt, updatedAt);
+                costType, visibility, null, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus);
     }
 
     /**
@@ -90,6 +93,16 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt);
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus);
+    }
+
+    /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
+    public GameResponse withOverview(NextGameSessionResponse session, RegistrationStatus registrationStatus) {
+        return new GameResponse(
+                id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
+                genre, description, requirements,
+                allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
+                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, session, registrationStatus);
     }
 }

@@ -3,7 +3,7 @@ package club.ttg.findgame.session.api;
 import club.ttg.findgame.session.SessionPaymentType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -16,10 +16,9 @@ import java.time.Instant;
 public record CreateGameSessionRequest(
         @NotBlank @Size(max = 150) String title,
         /**
-         * Начало сессии. Необязательно: пустое означает набор с открытой
-         * датой — мастер назначит время, когда соберёт игроков.
+         * Обязательное начало сессии в будущем.
          */
-        @NotNull @FutureOrPresent Instant startsAt,
+        @NotNull @Future(message = "Дата и время начала сессии должны быть в будущем") Instant startsAt,
         @Positive Integer estimatedDurationMinutes,
         @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2) BigDecimal priceAmount,
         @Pattern(regexp = "[A-Z]{3}", message = "должно содержать трёхбуквенный код валюты ISO 4217")

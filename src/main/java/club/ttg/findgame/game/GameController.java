@@ -90,13 +90,18 @@ public class GameController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) Set<GameStatus> status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "ALL") GamePersonalRole role
     ) {
+        if (role == GamePersonalRole.ALL) {
+            return service.findOwn(UUID.fromString(jwt.getSubject()), status == null ? Set.of() : status, page, size);
+        }
         return service.findOwn(
                 UUID.fromString(jwt.getSubject()),
                 status == null ? Set.of() : status,
                 page,
-                size);
+                size,
+                role);
     }
 
     @GetMapping("/{gameId}")

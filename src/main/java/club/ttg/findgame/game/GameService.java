@@ -3,6 +3,8 @@ package club.ttg.findgame.game;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
+import club.ttg.findgame.game.api.NextGameSessionResponse;
+import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
 import club.ttg.findgame.registration.GameRegistrationRepository;
@@ -346,7 +348,7 @@ public class GameService {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter), pageable);
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
-        return games.map(game -> toPublicResponse(game, seats));
+        return enrichOverview(games.map(game -> toPublicResponse(game, seats)), null);
     }
 
     /**
@@ -364,18 +366,44 @@ public class GameService {
             int page,
             int size
     ) {
+        return findOwn(userId, statuses, page, size, GamePersonalRole.ALL);
+    }
+
+    /** Отбирает игры по роли до пагинации и добавляет сведения для карточек. */
+    @Transactional(readOnly = true)
+    public Page<GameResponse> findOwn(
+            UUID userId, Set<GameStatus> statuses, int page, int size, GamePersonalRole role
+    ) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         // Без отбора отменённые не показываются: они не состоялись, и в общем
         // списке своих игр им место только по прямому запросу.
         Set<GameStatus> wanted = statuses.isEmpty()
                 ? EnumSet.complementOf(EnumSet.of(GameStatus.CANCELLED))
                 : statuses;
-        Page<Game> games = repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable);
+        Page<Game> games = role == GamePersonalRole.ALL
+                ? repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable)
+                : repository.findPersonal(userId, wanted, role.name(), Instant.now(), PageRequest.of(page, size));
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
 
-        return games.map(game -> game.getMasterId().equals(userId)
+        return enrichOverview(games.map(game -> game.getMasterId().equals(userId)
                 ? toResponse(game, seats)
-                : toPublicResponse(game, seats));
+                : toPublicResponse(game, seats)), userId);
+    }
+
+    /** Загружает встречи и собственные заявки пакетно, без запроса на каждую карточку. */
+    private Page<GameResponse> enrichOverview(Page<GameResponse> games, UUID userId) {
+        if (games.isEmpty()) return games;
+        List<UUID> gameIds = games.stream().map(GameResponse::id).toList();
+        Map<UUID, NextGameSessionResponse> upcoming = new LinkedHashMap<>();
+        for (GameSession session : sessionRepository.findUpcoming(gameIds, GameSessionStatus.SCHEDULED, Instant.now())) {
+            upcoming.putIfAbsent(session.getGameId(), new NextGameSessionResponse(
+                    session.getId(), session.getStartsAt(), session.getEstimatedDurationMinutes(),
+                    session.getPriceAmount(), session.getPriceCurrency()));
+        }
+        Map<UUID, RegistrationStatus> registrations = userId == null ? Map.of()
+                : registrationRepository.findAllByPlayerIdAndGameIdIn(userId, gameIds).stream()
+                    .collect(Collectors.toMap(GameRegistration::getGameId, GameRegistration::getStatus));
+        return games.map(game -> game.withOverview(upcoming.get(game.id()), registrations.get(game.id())));
     }
 
     /**

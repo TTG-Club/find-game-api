@@ -126,6 +126,27 @@ class GameControllerSecurityTest {
         verify(service).findOwn(masterId, Set.of(), 1, 5);
     }
 
+    @Test
+    void personalRoleUsesAuthenticatedUser() throws Exception {
+        UUID userId = UUID.randomUUID();
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(GamePersonalRole.class)))
+                .willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games/my")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(userId))
+                        .param("role", "APPLICATIONS"))
+                .andExpect(status().isOk());
+
+        verify(service).findOwn(userId, Set.of(), 0, 20, GamePersonalRole.APPLICATIONS);
+    }
+
+    @Test
+    void guestCannotReadPersonalOverview() throws Exception {
+        mockMvc.perform(get("/api/v1/games/my").param("role", "UPCOMING"))
+                .andExpect(status().isUnauthorized());
+        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt(), any());
+    }
+
     /**
      * `/my` — литеральный путь: он не должен уходить в `/{gameId}` и падать на
      * разборе UUID, поэтому проверяем именно вызов `findOwn`, а не `get`.

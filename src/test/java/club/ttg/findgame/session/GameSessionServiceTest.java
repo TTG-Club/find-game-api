@@ -68,6 +68,40 @@ class GameSessionServiceTest {
     private final GameSessionMapper mapper = Mappers.getMapper(GameSessionMapper.class);
 
     @Test
+    void pastSessionCannotBeCreatedOrCopied() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.FREE);
+        when(gameRepository.findByIdForUpdate(gameId))
+                .thenReturn(Optional.of(game));
+        Instant pastStart = Instant.now().minusSeconds(60);
+
+        assertThatThrownBy(() -> service().create(masterId, gameId, freeRequest(pastStart)))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+        assertThatThrownBy(() -> service().copy(masterId, gameId, UUID.randomUUID(),
+                new CopyGameSessionRequest(null, pastStart)))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+        verify(sessionRepository, never()).save(any());
+        verify(registrationRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void sessionCannotBeCreatedOrCopiedWithoutStart() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.FREE);
+        when(gameRepository.findByIdForUpdate(gameId))
+                .thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().create(masterId, gameId, freeRequest(null)))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+        assertThatThrownBy(() -> service().copy(masterId, gameId, UUID.randomUUID(),
+                new CopyGameSessionRequest(null, null)))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
     void ownerCreatesScheduledSessionWithEmptyPlayerList() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();

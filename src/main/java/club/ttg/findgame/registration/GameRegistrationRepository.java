@@ -13,6 +13,9 @@ public interface GameRegistrationRepository extends JpaRepository<GameRegistrati
 
     Optional<GameRegistration> findByGameIdAndPlayerId(UUID gameId, UUID playerId);
 
+    /** Собственные заявки сразу для всей страницы личного кабинета. */
+    List<GameRegistration> findAllByPlayerIdAndGameIdIn(UUID playerId, Collection<UUID> gameIds);
+
     Optional<GameRegistration> findByIdAndGameId(UUID id, UUID gameId);
 
     List<GameRegistration> findAllByGameIdOrderByCreatedAtAsc(UUID gameId);

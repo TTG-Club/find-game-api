@@ -1,7 +1,7 @@
 package club.ttg.findgame.session;
 
 /**
- * Дату сессии изменить нельзя: назначение закрывает открытую дату один раз.
+ * Некорректная дата начала сессии или расписание серии.
  */
 public class InvalidGameSessionDateException extends RuntimeException {
 

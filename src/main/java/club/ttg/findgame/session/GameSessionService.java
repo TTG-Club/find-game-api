@@ -77,6 +77,13 @@ public class GameSessionService {
         this.nexusService = nexusService;
     }
 
+    /** Не позволяет обойти проверку даты при вызове сервиса без HTTP-валидации. */
+    private static void validateFutureStart(Instant startsAt) {
+        if (startsAt == null || !startsAt.isAfter(Instant.now())) {
+            throw new InvalidGameSessionDateException("Дата и время начала сессии должны быть в будущем");
+        }
+    }
+
     @Transactional
     public GameSessionResponse create(UUID masterId, UUID gameId, CreateGameSessionRequest request) {
         Game game = gameRepository.findByIdForUpdate(gameId)
@@ -88,6 +95,7 @@ public class GameSessionService {
         validateCost(game.getCostType(), request.priceAmount(),
                 request.priceCurrency(), request.paymentType());
 
+        validateFutureStart(request.startsAt());
         GameSession session = mapper.toEntity(request);
         session.setGameId(gameId);
         session.setStatus(GameSessionStatus.SCHEDULED);
@@ -180,7 +188,7 @@ public class GameSessionService {
 
             Instant startsAt = day.atTime(request.timeOfDay()).atZone(zone).toInstant();
 
-            if (startsAt.isBefore(now)) {
+            if (!startsAt.isAfter(now)) {
                 continue;
             }
 
@@ -212,6 +220,7 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
+        validateFutureStart(request.startsAt());
         GameSession source = sessionRepository.findByIdAndGameId(sourceSessionId, gameId)
                 .orElseThrow(() -> new GameSessionNotFoundException(sourceSessionId));
         GameSession target = copySession(source, request);
