@@ -2,6 +2,7 @@ package club.ttg.findgame.registration;
 
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 import club.ttg.findgame.registration.api.GameRegistrationResponse;
+import club.ttg.findgame.registration.api.GameParticipantResponse;
 import club.ttg.findgame.registration.api.ReviewGameRegistrationRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -62,6 +63,15 @@ public class GameRegistrationController {
         return service.findAllForMaster(userId(jwt), gameId);
     }
 
+    @GetMapping("/participants")
+    @Operation(summary = "Получить состав своей игры")
+    public List<GameParticipantResponse> participants(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        return service.findParticipants(userId(jwt), gameId);
+    }
+
     @GetMapping("/me")
     @Operation(summary = "Получить свою заявку")
     public GameRegistrationResponse findOwn(
@@ -74,7 +84,7 @@ public class GameRegistrationController {
 
     @DeleteMapping("/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Отозвать свою заявку")
+    @Operation(summary = "Отозвать свою заявку или выйти из игры")
     public void withdraw(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId

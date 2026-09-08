@@ -256,6 +256,8 @@ class GameRegistrationServiceTest {
     void playerWithdrawsOwnPendingApplication() {
         UUID playerId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         GameRegistration registration = registration(gameId, playerId, RegistrationStatus.PENDING);
         when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
                 .thenReturn(Optional.of(registration));
@@ -268,17 +270,53 @@ class GameRegistrationServiceTest {
     }
 
     @Test
-    void approvedApplicationIsNotWithdrawnByPlayer() {
+    void approvedPlayerLeavesOnlyOpenSessions() {
         UUID playerId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        UUID scheduledId = UUID.randomUUID();
+        UUID activeId = UUID.randomUUID();
+        List<GameSession> sessions = List.of(
+                session(scheduledId, GameSessionStatus.SCHEDULED),
+                session(activeId, GameSessionStatus.IN_PROGRESS),
+                session(UUID.randomUUID(), GameSessionStatus.COMPLETED),
+                session(UUID.randomUUID(), GameSessionStatus.CANCELLED));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(sessions);
         when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
                 .thenReturn(Optional.of(registration(gameId, playerId, RegistrationStatus.APPROVED)));
 
-        // Место согласовано: тихий уход из состава подвёл бы группу.
-        assertThatThrownBy(() -> service().withdraw(playerId, gameId))
-                .isInstanceOf(InvalidSessionRegistrationException.class);
+        service().withdraw(playerId, gameId);
+        verify(participantRepository).deleteBySessionIdInAndPlayerId(List.of(scheduledId, activeId), playerId);
+        verify(registrationRepository).delete(any());
+    }
 
-        verify(registrationRepository, never()).delete(any());
+    @Test
+    void approvedPlayerSeesOnlyApprovedParticipants() {
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        GameRegistration own = registration(gameId, playerId, RegistrationStatus.APPROVED);
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId)).thenReturn(Optional.of(own));
+        when(registrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED))
+                .thenReturn(List.of(own));
+
+        assertThat(service().findParticipants(playerId, gameId)).hasSize(1)
+                .first().extracting("playerId").isEqualTo(playerId);
+    }
+
+    @Test
+    void pendingPlayerCannotReadParticipants() {
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.of(registration(gameId, playerId, RegistrationStatus.PENDING)));
+        assertThatThrownBy(() -> service().findParticipants(playerId, gameId))
+                .isInstanceOf(SessionRegistrationAccessDeniedException.class);
+        verify(registrationRepository, never()).findAllByGameIdAndStatus(any(), any());
     }
 
     @Test

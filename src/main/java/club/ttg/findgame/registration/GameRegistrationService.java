@@ -8,6 +8,7 @@ import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 import club.ttg.findgame.registration.api.GameRegistrationResponse;
+import club.ttg.findgame.registration.api.GameParticipantResponse;
 import club.ttg.findgame.registration.api.ReviewGameRegistrationRequest;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
@@ -104,21 +105,22 @@ public class GameRegistrationService {
      * отказ мастера и передумавший игрок — разные вещи, и на отклонённую
      * заявку подать повторно уже нельзя, а на отозванную — можно.
      *
-     * Принятую так не отзывают: место согласовано, и тихий уход из состава
-     * подвёл бы группу — об этом договариваются с мастером.
+     * Выход принятого игрока убирает его из незавершённых встреч,
+     * сохраняя историю сыгранных и отменённых сессий.
      *
      * @param playerId Игрок из токена.
      * @param gameId Игра.
      */
     @Transactional
     public void withdraw(UUID playerId, UUID gameId) {
+        gameRepository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
         GameRegistration registration = registrationRepository
                 .findByGameIdAndPlayerId(gameId, playerId)
                 .orElseThrow(() -> new SessionRegistrationNotFoundException(gameId));
 
         if (registration.getStatus() == RegistrationStatus.APPROVED) {
-            throw new InvalidSessionRegistrationException(
-                    "Принятую заявку отзывает мастер: договоритесь с ним");
+            removeFromOpenSessions(gameId, playerId);
         }
 
         registrationRepository.delete(registration);
@@ -187,6 +189,23 @@ public class GameRegistrationService {
                 .toList();
     }
 
+    /** Показывает принятых участников только мастеру и текущему составу игры. */
+    @Transactional(readOnly = true)
+    public List<GameParticipantResponse> findParticipants(UUID userId, UUID gameId) {
+        Game game = gameRepository.findByIdAndDeletedAtIsNull(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+        boolean isParticipant = registrationRepository.findByGameIdAndPlayerId(gameId, userId)
+                .filter(registration -> registration.getStatus() == RegistrationStatus.APPROVED)
+                .isPresent();
+        if (!game.getMasterId().equals(userId) && !isParticipant) {
+            throw new SessionRegistrationAccessDeniedException("Состав доступен только участникам игры");
+        }
+        return registrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
+                .map(registration -> new GameParticipantResponse(
+                        registration.getPlayerId(), registration.getCharacterName()))
+                .toList();
+    }
+
     /**
      * Собственная заявка игрока.
      *
@@ -240,6 +259,11 @@ public class GameRegistrationService {
         registration.setStatus(RegistrationStatus.REJECTED);
         registration.setRejectionReason(blankToNull(reason));
 
+        removeFromOpenSessions(gameId, registration.getPlayerId());
+    }
+
+    /** Удаляет участие только в незавершённых встречах, не затрагивая историю. */
+    private void removeFromOpenSessions(UUID gameId, UUID playerId) {
         List<UUID> openSessions = sessionRepository
                 .findAllByGameIdOrderByStartsAtAsc(gameId).stream()
                 .filter(session -> session.getStatus() == GameSessionStatus.SCHEDULED
@@ -249,7 +273,7 @@ public class GameRegistrationService {
 
         if (!openSessions.isEmpty()) {
             participantRepository.deleteBySessionIdInAndPlayerId(
-                    openSessions, registration.getPlayerId());
+                    openSessions, playerId);
         }
     }
 
