@@ -47,6 +47,10 @@ public class Game {
     @Column(name = "virtual_table_url", length = 2048)
     private String virtualTableUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "online_platform", length = 32)
+    private GameOnlinePlatform onlinePlatform;
+
     /** Разговор с мастером: открыт всем, кто смотрит объявление. */
     @Column(name = "master_chat_url", length = 2048)
     private String masterChatUrl;

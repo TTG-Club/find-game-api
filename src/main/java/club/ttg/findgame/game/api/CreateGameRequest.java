@@ -4,6 +4,7 @@ import club.ttg.findgame.common.SiteUrl;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameSystem;
+import club.ttg.findgame.game.GameOnlinePlatform;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -95,6 +96,9 @@ public record CreateGameRequest(
         GameCostType costType,
 
         @NotNull
-        GameVisibility visibility
+        GameVisibility visibility,
+
+        @Schema(description = "Платформа только для онлайн-игр; при создании по умолчанию VTTG")
+        GameOnlinePlatform onlinePlatform
 ) {
 }

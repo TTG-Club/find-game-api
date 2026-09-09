@@ -89,3 +89,7 @@ databaseChangeLog:
       file: db/changelog/changes/044-create-session-reviews.sql
   - include:
       file: db/changelog/changes/045-create-user-follows.sql
+  - include:
+      file: db/changelog/changes/046-default-session-attendance.sql
+  - include:
+      file: db/changelog/changes/047-add-game-online-platform.sql

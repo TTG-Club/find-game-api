@@ -96,6 +96,7 @@ public class GameService {
         enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
+        game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), null));
         game.setMasterId(masterId);
         game.setStatus(GameStatus.OPEN);
         if (game.getVisibility() == GameVisibility.PRIVATE) {
@@ -147,6 +148,7 @@ public class GameService {
 
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
+        game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), game.getOnlinePlatform()));
         applyVisibilityChange(game, previousVisibility);
 
         return toOwnerResponse(repository.save(game));
@@ -164,6 +166,18 @@ public class GameService {
             throw new InvalidGameDetailsException(
                     "Платность нельзя изменить, когда у игры уже есть сессии");
         }
+    }
+
+    /** Сохраняет выбор старых клиентов, задаёт значение по умолчанию и очищает поле вне онлайн-игр. */
+    private static GameOnlinePlatform resolveOnlinePlatform(
+            GameType type, GameOnlinePlatform requested, GameOnlinePlatform current) {
+        if (type != GameType.ONLINE) {
+            return null;
+        }
+        if (requested != null) {
+            return requested;
+        }
+        return current != null ? current : GameOnlinePlatform.VTTG;
     }
 
     /**

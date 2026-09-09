@@ -54,14 +54,13 @@ public class SessionRegistration {
     private Instant paidAt;
 
     /**
-     * Заводит участие игрока в сессии. Присутствие по умолчанию — «не буду»:
-     * его подтверждает сам игрок, и молчание нельзя считать согласием.
+     * Заводит участие без отметки: молчание не означает ни согласие, ни отказ.
      */
     public static SessionRegistration of(UUID sessionId, UUID playerId) {
         SessionRegistration participation = new SessionRegistration();
         participation.sessionId = sessionId;
         participation.playerId = playerId;
-        participation.attendanceStatus = SessionAttendanceStatus.NOT_ATTENDING;
+        participation.attendanceStatus = SessionAttendanceStatus.UNMARKED;
 
         return participation;
     }

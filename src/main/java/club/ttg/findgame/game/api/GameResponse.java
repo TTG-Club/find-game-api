@@ -4,6 +4,7 @@ import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.game.GameSystem;
+import club.ttg.findgame.game.GameOnlinePlatform;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -67,7 +68,8 @@ public record GameResponse(
         Instant listPositionAt,
         Instant updatedAt,
         NextGameSessionResponse nextSession,
-        @JsonInclude(JsonInclude.Include.NON_NULL) RegistrationStatus myRegistrationStatus
+        @JsonInclude(JsonInclude.Include.NON_NULL) RegistrationStatus myRegistrationStatus,
+        GameOnlinePlatform onlinePlatform
 ) {
 
     /**
@@ -80,7 +82,7 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, null, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus);
+                costType, visibility, null, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus, onlinePlatform);
     }
 
     /**
@@ -93,7 +95,7 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus);
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus, onlinePlatform);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -103,6 +105,6 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, session, registrationStatus);
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, session, registrationStatus, onlinePlatform);
     }
 }

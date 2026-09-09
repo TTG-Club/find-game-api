@@ -82,6 +82,7 @@ class GameServiceTest {
         Game game = editableGame(UUID.randomUUID(), UUID.randomUUID());
         game.setInviteCode(UUID.randomUUID());
         game.setGameChatUrl("https://example.org/private-chat");
+        game.setOnlinePlatform(GameOnlinePlatform.FOUNDRY_VTT);
         GameSession nearest = mock(GameSession.class);
         when(nearest.getGameId()).thenReturn(game.getId());
         when(nearest.getId()).thenReturn(UUID.randomUUID());
@@ -99,6 +100,7 @@ class GameServiceTest {
         assertThat(response.inviteCode()).isNull();
         assertThat(response.gameChatUrl()).isNull();
         assertThat(response.myRegistrationStatus()).isNull();
+        assertThat(response.onlinePlatform()).isEqualTo(GameOnlinePlatform.FOUNDRY_VTT);
         verify(sessionRepository).findUpcoming(eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class));
         verify(registrationRepository, never()).findAllByPlayerIdAndGameIdIn(any(), any());
     }
@@ -131,6 +133,7 @@ class GameServiceTest {
         verify(repository).save(captor.capture());
         assertThat(captor.getValue().getMasterId()).isEqualTo(masterId);
         assertThat(response.virtualTableUrl()).isEqualTo("https://vtt.example.org/games/curse-of-strahd");
+        assertThat(response.onlinePlatform()).isEqualTo(GameOnlinePlatform.VTTG);
         assertThat(response.genre()).isEqualTo("Готическое фэнтези");
         assertThat(response.durationType()).isEqualTo(GameDurationType.CAMPAIGN);
         assertThat(response.costType()).isEqualTo(GameCostType.PAID);
@@ -200,7 +203,7 @@ class GameServiceTest {
                 "Кишинёв", source.venue(),
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
-                source.visibility());
+                source.visibility(), source.onlinePlatform());
 
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
                 .isInstanceOf(InvalidGameDetailsException.class);
@@ -218,7 +221,7 @@ class GameServiceTest {
                 source.city(), "Клуб «Кубик», Пятницкая 12",
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
-                source.visibility());
+                source.visibility(), source.onlinePlatform());
 
         // Онлайн собирается по ссылке: адрес стола ему не нужен.
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
@@ -674,11 +677,52 @@ class GameServiceTest {
                 source.city(), source.venue(),
                 playersToStart, maxPlayers, source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(),
-                source.costType(), source.visibility());
+                source.costType(), source.visibility(), source.onlinePlatform());
+    }
+
+    @Test
+    void createsGamesWithSelectedPlatformOnlyForOnlineFormat() {
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        for (GameOnlinePlatform platform : GameOnlinePlatform.values()) {
+            GameResponse response = service().create(UUID.randomUUID(), "game-master",
+                    request(3, 5, GameVisibility.PUBLIC, GameType.ONLINE, platform));
+            assertThat(response.onlinePlatform()).isEqualTo(platform);
+        }
+        for (GameType type : List.of(GameType.OFFLINE, GameType.TEXT)) {
+            GameResponse response = service().create(UUID.randomUUID(), "game-master",
+                    request(3, 5, GameVisibility.PUBLIC, type, GameOnlinePlatform.VTTG));
+            assertThat(response.onlinePlatform()).isNull();
+        }
+    }
+
+    @Test
+    void updatesPlatformPreservesOldClientChoiceAndClearsItOutsideOnline() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        assertThat(service().update(masterId, "game-master", gameId, updateRequest())
+                .onlinePlatform()).isEqualTo(GameOnlinePlatform.VTTG);
+        assertThat(service().update(masterId, "game-master", gameId,
+                updateRequest(GameType.ONLINE, GameOnlinePlatform.ROLL20))
+                .onlinePlatform()).isEqualTo(GameOnlinePlatform.ROLL20);
+        assertThat(service().update(masterId, "game-master", gameId, updateRequest())
+                .onlinePlatform()).isEqualTo(GameOnlinePlatform.ROLL20);
+        for (GameType type : List.of(GameType.OFFLINE, GameType.TEXT)) {
+            assertThat(service().update(masterId, "game-master", gameId,
+                    updateRequest(type, GameOnlinePlatform.ROLL20)).onlinePlatform()).isNull();
+        }
     }
 
     /** Тело правки: по умолчанию совпадает с {@link #editableGame}. */
     private UpdateGameRequest updateRequest() {
+        return updateRequest(GameType.ONLINE, null);
+    }
+
+    /** Тело правки с выбранной платформой и форматом игры. */
+    private UpdateGameRequest updateRequest(GameType type, GameOnlinePlatform platform) {
         return new UpdateGameRequest(
                 "Проклятие Страда",
                 GameSystem.DND_2024,
@@ -690,7 +734,7 @@ class GameServiceTest {
                 "Кампания",
                 "Требования",
                 null,
-                GameType.ONLINE,
+                type,
                 null,
                 null,
                 3,
@@ -701,7 +745,7 @@ class GameServiceTest {
                 false,
                 GameDurationType.CAMPAIGN,
                 GameCostType.FREE,
-                GameVisibility.PUBLIC);
+                GameVisibility.PUBLIC, platform);
     }
 
     private Game raisableGame(UUID masterId, Instant listPositionAt) {
@@ -720,10 +764,16 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
-                source.crossplayAllowed(), source.durationType(), source.costType(), source.visibility());
+                source.crossplayAllowed(), source.durationType(), source.costType(), source.visibility(), source.onlinePlatform());
     }
 
     private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility) {
+        return request(playersToStart, maxPlayers, visibility, GameType.ONLINE, null);
+    }
+
+    /** Тело создания с выбранной платформой и форматом игры. */
+    private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility,
+                                      GameType type, GameOnlinePlatform platform) {
         return new CreateGameRequest(
                 "Проклятие Страда",
                 GameSystem.DND_2024,
@@ -735,7 +785,7 @@ class GameServiceTest {
                 "Готическая кампания",
                 "Совершеннолетние игроки",
                 Set.of("Player's Handbook 2024", "Tasha's Cauldron of Everything"),
-                GameType.ONLINE,
+                type,
                 null,
                 null,
                 playersToStart,
@@ -746,7 +796,7 @@ class GameServiceTest {
                 true,
                 GameDurationType.CAMPAIGN,
                 GameCostType.PAID,
-                visibility
+                visibility, platform
         );
     }
 }

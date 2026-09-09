@@ -144,7 +144,7 @@ class GameRegistrationServiceTest {
             assertThat(participation.getSessionId()).isEqualTo(scheduledId);
             assertThat(participation.getPlayerId()).isEqualTo(playerId);
             assertThat(participation.getAttendanceStatus())
-                    .isEqualTo(SessionAttendanceStatus.NOT_ATTENDING);
+                    .isEqualTo(SessionAttendanceStatus.UNMARKED);
         });
     }
 
@@ -317,6 +317,32 @@ class GameRegistrationServiceTest {
         assertThatThrownBy(() -> service().findParticipants(playerId, gameId))
                 .isInstanceOf(SessionRegistrationAccessDeniedException.class);
         verify(registrationRepository, never()).findAllByGameIdAndStatus(any(), any());
+    }
+
+    @Test
+    void participantsSeeNearestSessionAttendance() {
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID otherPlayerId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        GameRegistration own = registration(gameId, playerId, RegistrationStatus.APPROVED);
+        GameRegistration other = registration(gameId, otherPlayerId, RegistrationStatus.APPROVED);
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId)).thenReturn(Optional.of(own));
+        when(registrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED)).thenReturn(List.of(own, other));
+        GameSession nearest = session(sessionId, GameSessionStatus.SCHEDULED);
+        when(nearest.getStartsAt()).thenReturn(java.time.Instant.parse("2099-01-01T18:00:00Z"));
+        when(sessionRepository.findUpcoming(eq(List.of(gameId)), eq(GameSessionStatus.SCHEDULED), any())).thenReturn(List.of(nearest));
+        SessionRegistration ownParticipation = SessionRegistration.of(sessionId, playerId);
+        SessionRegistration otherParticipation = SessionRegistration.of(sessionId, otherPlayerId);
+        otherParticipation.setAttendanceStatus(SessionAttendanceStatus.ATTENDING);
+        when(participantRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId)).thenReturn(List.of(ownParticipation, otherParticipation));
+
+        var participants = service().findParticipants(playerId, gameId);
+        assertThat(participants.get(0).nextSession().attendanceStatus()).isEqualTo(SessionAttendanceStatus.UNMARKED);
+        assertThat(participants.get(1).nextSession().attendanceStatus()).isEqualTo(SessionAttendanceStatus.ATTENDING);
+        assertThat(participants.get(1).nextSession().id()).isEqualTo(sessionId);
     }
 
     @Test

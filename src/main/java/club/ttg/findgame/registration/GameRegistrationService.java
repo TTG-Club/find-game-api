@@ -9,6 +9,7 @@ import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 import club.ttg.findgame.registration.api.GameRegistrationResponse;
 import club.ttg.findgame.registration.api.GameParticipantResponse;
+import club.ttg.findgame.registration.api.GameParticipantSessionResponse;
 import club.ttg.findgame.registration.api.ReviewGameRegistrationRequest;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
@@ -19,6 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.time.Instant;
 
 /**
  * Заявки в игру.
@@ -200,10 +205,29 @@ public class GameRegistrationService {
         if (!game.getMasterId().equals(userId) && !isParticipant) {
             throw new SessionRegistrationAccessDeniedException("Состав доступен только участникам игры");
         }
+        GameSession nextSession = sessionRepository.findUpcoming(
+                List.of(gameId), GameSessionStatus.SCHEDULED, Instant.now()).stream()
+                .filter(session -> session.getStartsAt() != null)
+                .findFirst().orElse(null);
+        Map<UUID, SessionRegistration> participations = nextSession == null ? Map.of()
+                : participantRepository.findAllBySessionIdOrderByCreatedAtAsc(nextSession.getId()).stream()
+                    .collect(Collectors.toMap(SessionRegistration::getPlayerId, Function.identity()));
         return registrationRepository.findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
                 .map(registration -> new GameParticipantResponse(
-                        registration.getPlayerId(), registration.getCharacterName()))
+                        registration.getPlayerId(), registration.getCharacterName(),
+                        participantSession(nextSession, participations.get(registration.getPlayerId()))))
                 .toList();
+    }
+
+    /** Отсутствие отметки отделяется от отсутствия запланированной сессии. */
+    private static GameParticipantSessionResponse participantSession(
+            GameSession session, SessionRegistration participation
+    ) {
+        if (session == null) return null;
+        SessionAttendanceStatus attendance = participation == null || participation.getAttendanceStatus() == null
+                ? SessionAttendanceStatus.UNMARKED : participation.getAttendanceStatus();
+        return new GameParticipantSessionResponse(session.getId(), session.getStartsAt(),
+                session.getEstimatedDurationMinutes(), attendance);
     }
 
     /**

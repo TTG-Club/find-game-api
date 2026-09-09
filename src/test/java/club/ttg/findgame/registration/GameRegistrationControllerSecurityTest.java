@@ -41,7 +41,7 @@ class GameRegistrationControllerSecurityTest {
     void participantsUseJwtIdentityAndMinimalResponse() throws Exception {
         UUID playerId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
-        when(service.findParticipants(playerId, gameId)).thenReturn(List.of(new GameParticipantResponse(playerId, "Следопыт")));
+        when(service.findParticipants(playerId, gameId)).thenReturn(List.of(new GameParticipantResponse(playerId, "Следопыт", null)));
         mockMvc.perform(get("/api/v1/games/{gameId}/registrations/participants", gameId)
                         .header("Authorization", "Bearer " + token(playerId)))
                 .andExpect(status().isOk())

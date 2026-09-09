@@ -10,6 +10,8 @@ import club.ttg.findgame.registration.api.UpdateAttendanceRequest;
 import club.ttg.findgame.registration.api.UpdatePaymentStatusRequest;
 import club.ttg.findgame.session.GameSessionNotFoundException;
 import club.ttg.findgame.session.GameSessionRepository;
+import club.ttg.findgame.session.GameSession;
+import club.ttg.findgame.session.GameSessionStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -109,7 +111,11 @@ public class SessionRegistrationService {
     ) {
         gameRepository.findByIdAndDeletedAtIsNull(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
-        requireSession(gameId, sessionId);
+        GameSession session = sessionRepository.findByIdAndGameId(sessionId, gameId)
+                .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
+        if (session.getStatus() == GameSessionStatus.COMPLETED || session.getStatus() == GameSessionStatus.CANCELLED) {
+            throw new InvalidSessionRegistrationException("Нельзя менять присутствие в закрытой сессии");
+        }
 
         SessionRegistration participation = participantRepository
                 .findBySessionIdAndPlayerId(sessionId, playerId)
@@ -185,7 +191,7 @@ public class SessionRegistrationService {
                 participation.getId(),
                 participation.getSessionId(),
                 participation.getPlayerId(),
-                participation.getAttendanceStatus(),
+                participation.getAttendanceStatus() == null ? SessionAttendanceStatus.UNMARKED : participation.getAttendanceStatus(),
                 participation.getPaidAt() != null,
                 participation.getPaidAt(),
                 participation.getCreatedAt(),

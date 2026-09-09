@@ -283,7 +283,7 @@ class GameSessionServiceTest {
         assertThat(captor.getValue()).singleElement().satisfies(copy -> {
             assertThat(copy.getSessionId()).isEqualTo(response.id());
             assertThat(copy.getPlayerId()).isEqualTo(playerId);
-            assertThat(copy.getAttendanceStatus()).isEqualTo(SessionAttendanceStatus.NOT_ATTENDING);
+            assertThat(copy.getAttendanceStatus()).isEqualTo(SessionAttendanceStatus.UNMARKED);
             assertThat(copy.getPaidAt()).isNull();
         });
     }
