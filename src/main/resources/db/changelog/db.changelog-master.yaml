@@ -93,3 +93,5 @@ databaseChangeLog:
       file: db/changelog/changes/046-default-session-attendance.sql
   - include:
       file: db/changelog/changes/047-add-game-online-platform.sql
+  - include:
+      file: db/changelog/changes/048-create-game-finances.sql

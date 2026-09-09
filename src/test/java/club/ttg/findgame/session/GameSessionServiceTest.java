@@ -541,7 +541,7 @@ class GameSessionServiceTest {
         return new GameSessionService(
                 gameRepository, sessionRepository, registrationRepository,
                 gameRegistrationRepository, mapper, notificationService, chatService,
-                nexusService);
+                nexusService, mock(club.ttg.findgame.finance.GameFinanceService.class));
     }
 
     /** Заявка на сессию бесплатной игры с произвольной датой. */

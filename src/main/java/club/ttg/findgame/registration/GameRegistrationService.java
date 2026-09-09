@@ -1,6 +1,7 @@
 package club.ttg.findgame.registration;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.finance.GameFinanceService;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
@@ -40,19 +41,22 @@ public class GameRegistrationService {
     private final GameRegistrationRepository registrationRepository;
     private final SessionRegistrationRepository participantRepository;
     private final NotificationService notificationService;
+    private final GameFinanceService financeService;
 
     public GameRegistrationService(
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
             GameRegistrationRepository registrationRepository,
             SessionRegistrationRepository participantRepository,
-            NotificationService notificationService
+            NotificationService notificationService,
+            GameFinanceService financeService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.participantRepository = participantRepository;
         this.notificationService = notificationService;
+        this.financeService = financeService;
     }
 
     /**
@@ -125,7 +129,7 @@ public class GameRegistrationService {
                 .orElseThrow(() -> new SessionRegistrationNotFoundException(gameId));
 
         if (registration.getStatus() == RegistrationStatus.APPROVED) {
-            removeFromOpenSessions(gameId, playerId);
+            removeFromOpenSessions(gameId, playerId, playerId);
         }
 
         registrationRepository.delete(registration);
@@ -283,11 +287,12 @@ public class GameRegistrationService {
         registration.setStatus(RegistrationStatus.REJECTED);
         registration.setRejectionReason(blankToNull(reason));
 
-        removeFromOpenSessions(gameId, registration.getPlayerId());
+        UUID masterId = gameRepository.findByIdForUpdate(gameId).orElseThrow(() -> new GameNotFoundException(gameId)).getMasterId();
+        removeFromOpenSessions(gameId, registration.getPlayerId(), masterId);
     }
 
     /** Удаляет участие только в незавершённых встречах, не затрагивая историю. */
-    private void removeFromOpenSessions(UUID gameId, UUID playerId) {
+    private void removeFromOpenSessions(UUID gameId, UUID playerId, UUID actorId) {
         List<UUID> openSessions = sessionRepository
                 .findAllByGameIdOrderByStartsAtAsc(gameId).stream()
                 .filter(session -> session.getStatus() == GameSessionStatus.SCHEDULED
@@ -296,6 +301,7 @@ public class GameRegistrationService {
                 .toList();
 
         if (!openSessions.isEmpty()) {
+            financeService.release(gameId, playerId, openSessions, actorId);
             participantRepository.deleteBySessionIdInAndPlayerId(
                     openSessions, playerId);
         }

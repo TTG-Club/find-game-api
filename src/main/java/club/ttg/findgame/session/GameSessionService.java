@@ -1,6 +1,7 @@
 package club.ttg.findgame.session;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.finance.GameFinanceService;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
@@ -45,6 +46,7 @@ public class GameSessionService {
     private final NotificationService notificationService;
     private final ChatService chatService;
     private final NexusService nexusService;
+    private final GameFinanceService financeService;
 
     /**
      * Предел серии. Расписание на год вперёд — это уже не расписание, а
@@ -65,7 +67,8 @@ public class GameSessionService {
             GameSessionMapper mapper,
             NotificationService notificationService,
             ChatService chatService,
-            NexusService nexusService
+            NexusService nexusService,
+            GameFinanceService financeService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
@@ -75,6 +78,7 @@ public class GameSessionService {
         this.notificationService = notificationService;
         this.chatService = chatService;
         this.nexusService = nexusService;
+        this.financeService = financeService;
     }
 
     /** Не позволяет обойти проверку даты при вызове сервиса без HTTP-валидации. */
@@ -293,6 +297,7 @@ public class GameSessionService {
 
         session.setStatus(GameSessionStatus.COMPLETED);
         session.setCompletedAt(Instant.now());
+        financeService.finish(owned.game(), session, false, masterId);
 
         Set<UUID> players = approvedPlayerIds(sessionId);
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);
@@ -323,6 +328,7 @@ public class GameSessionService {
         }
 
         session.setStatus(GameSessionStatus.CANCELLED);
+        financeService.finish(owned.game(), session, true, masterId);
 
         Set<UUID> players = approvedPlayerIds(sessionId);
         GameSessionResponse response = toResponse(sessionRepository.save(session), players);

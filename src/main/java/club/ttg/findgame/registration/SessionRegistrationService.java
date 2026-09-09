@@ -1,6 +1,7 @@
 package club.ttg.findgame.registration;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.finance.GameFinanceService;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
@@ -31,15 +32,18 @@ public class SessionRegistrationService {
     private final GameRepository gameRepository;
     private final GameSessionRepository sessionRepository;
     private final SessionRegistrationRepository participantRepository;
+    private final GameFinanceService financeService;
 
     public SessionRegistrationService(
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
-            SessionRegistrationRepository participantRepository
+            SessionRegistrationRepository participantRepository,
+            GameFinanceService financeService
     ) {
         this.gameRepository = gameRepository;
         this.sessionRepository = sessionRepository;
         this.participantRepository = participantRepository;
+        this.financeService = financeService;
     }
 
     /**
@@ -109,7 +113,7 @@ public class SessionRegistrationService {
             UUID sessionId,
             UpdateAttendanceRequest request
     ) {
-        gameRepository.findByIdAndDeletedAtIsNull(gameId)
+        gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         GameSession session = sessionRepository.findByIdAndGameId(sessionId, gameId)
                 .orElseThrow(() -> new GameSessionNotFoundException(sessionId));
@@ -160,9 +164,11 @@ public class SessionRegistrationService {
                 .findBySessionIdAndPlayerId(sessionId, playerId)
                 .orElseThrow(() -> new SessionRegistrationNotFoundException(sessionId));
 
-        participation.setPaidAt(Boolean.TRUE.equals(request.paid()) ? Instant.now() : null);
+        financeService.markPaid(masterId, gameId, sessionId, playerId, Boolean.TRUE.equals(request.paid()));
 
-        return toResponse(participantRepository.save(participation));
+        return participantRepository.findBySessionIdAndPlayerId(sessionId, playerId)
+                .map(SessionRegistrationService::toResponse)
+                .orElseThrow(() -> new SessionRegistrationNotFoundException(sessionId));
     }
 
     private void requireSession(UUID gameId, UUID sessionId) {

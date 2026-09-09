@@ -19,7 +19,8 @@ class SessionRegistrationServiceTest {
     private final GameRepository games = mock(GameRepository.class);
     private final GameSessionRepository sessions = mock(GameSessionRepository.class);
     private final SessionRegistrationRepository participants = mock(SessionRegistrationRepository.class);
-    private final SessionRegistrationService service = new SessionRegistrationService(games, sessions, participants);
+    private final SessionRegistrationService service = new SessionRegistrationService(games, sessions, participants,
+            mock(club.ttg.findgame.finance.GameFinanceService.class));
 
     @Test
     void playerCanSetAndResetOwnAttendanceForShownSession() {
@@ -29,7 +30,7 @@ class SessionRegistrationServiceTest {
         Game game = mock(Game.class);
         GameSession session = mock(GameSession.class);
         when(session.getStatus()).thenReturn(GameSessionStatus.SCHEDULED);
-        when(games.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(games.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(sessions.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
         SessionRegistration participation = SessionRegistration.of(sessionId, playerId);
         when(participants.findBySessionIdAndPlayerId(sessionId, playerId)).thenReturn(Optional.of(participation));
@@ -51,7 +52,7 @@ class SessionRegistrationServiceTest {
         Game game = mock(Game.class);
         GameSession session = mock(GameSession.class);
         when(session.getStatus()).thenReturn(GameSessionStatus.COMPLETED);
-        when(games.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(games.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(sessions.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
         assertThatThrownBy(() -> service.updateAttendance(UUID.randomUUID(), gameId, sessionId,
                 new UpdateAttendanceRequest(SessionAttendanceStatus.ATTENDING)))
@@ -66,7 +67,7 @@ class SessionRegistrationServiceTest {
         Game game = mock(Game.class);
         GameSession session = mock(GameSession.class);
         when(session.getStatus()).thenReturn(GameSessionStatus.SCHEDULED);
-        when(games.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(games.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
         when(sessions.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
         assertThatThrownBy(() -> service.updateAttendance(UUID.randomUUID(), gameId, sessionId,
                 new UpdateAttendanceRequest(SessionAttendanceStatus.ATTENDING)))

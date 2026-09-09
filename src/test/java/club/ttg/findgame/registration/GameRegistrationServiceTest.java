@@ -377,7 +377,7 @@ class GameRegistrationServiceTest {
     private GameRegistrationService service() {
         return new GameRegistrationService(
                 gameRepository, sessionRepository, registrationRepository,
-                participantRepository, notificationService);
+                participantRepository, notificationService, mock(club.ttg.findgame.finance.GameFinanceService.class));
     }
 
     /** Публичная игра с заданным мастером. */
