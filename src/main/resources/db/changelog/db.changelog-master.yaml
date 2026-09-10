@@ -95,3 +95,5 @@ databaseChangeLog:
       file: db/changelog/changes/047-add-game-online-platform.sql
   - include:
       file: db/changelog/changes/048-create-game-finances.sql
+  - include:
+      file: db/changelog/changes/049-create-game-reports.sql

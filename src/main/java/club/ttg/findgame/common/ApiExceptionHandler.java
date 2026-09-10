@@ -25,6 +25,8 @@ import club.ttg.findgame.registration.InvalidSessionRegistrationException;
 import club.ttg.findgame.registration.SessionRegistrationAccessDeniedException;
 import club.ttg.findgame.registration.SessionRegistrationNotFoundException;
 import club.ttg.findgame.profile.InvalidUserProfileException;
+import club.ttg.findgame.report.GameReportAlreadyExistsException;
+import club.ttg.findgame.report.GameReportNotAllowedException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -155,6 +157,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidUserProfileException.class)
     ProblemDetail handleInvalidUserProfile(InvalidUserProfileException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректный профиль", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameReportAlreadyExistsException.class)
+    ProblemDetail handleDuplicateGameReport(GameReportAlreadyExistsException exception) {
+        return problem(HttpStatus.CONFLICT, "Жалоба уже отправлена", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameReportNotAllowedException.class)
+    ProblemDetail handleGameReportNotAllowed(GameReportNotAllowedException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Жалоба недоступна", exception.getMessage());
     }
 
     @ExceptionHandler(ChatAccessDeniedException.class)
