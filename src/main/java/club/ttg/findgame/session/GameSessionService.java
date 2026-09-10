@@ -107,7 +107,12 @@ public class GameSessionService {
 
         // Состав игры въезжает в новую сессию сразу: игрок записывался в игру,
         // и заново подавать заявку на каждую встречу ему не нужно.
-        return toResponse(saved, addApprovedPlayers(gameId, saved.getId()));
+        Set<UUID> players = addApprovedPlayers(gameId, saved.getId());
+
+        notifyPlayers(new OwnedSession(game, saved), masterId, players,
+                NotificationType.SESSION_SCHEDULED);
+
+        return toResponse(saved, players);
     }
 
     /**
@@ -140,6 +145,7 @@ public class GameSessionService {
         List<Instant> starts = seriesStarts(request);
 
         List<GameSessionResponse> created = new ArrayList<>(starts.size());
+        GameSession firstOfSeries = null;
 
         for (Instant startsAt : starts) {
             GameSession session = new GameSession();
@@ -155,7 +161,16 @@ public class GameSessionService {
             GameSession saved = sessionRepository.save(session);
 
             created.add(toResponse(saved, addApprovedPlayers(gameId, saved.getId())));
+
+            // Серия — одно расписание, а не десяток новостей: игроки узнают о
+            // ней уведомлением о первой встрече, остальные видны в расписании.
+            if (firstOfSeries == null) {
+                firstOfSeries = saved;
+            }
         }
+
+        notifyPlayers(new OwnedSession(game, firstOfSeries), masterId,
+                approvedPlayerIds(firstOfSeries.getId()), NotificationType.SESSION_SCHEDULED);
 
         return created;
     }
@@ -242,6 +257,10 @@ public class GameSessionService {
                 .toList());
 
         Set<UUID> copiedPlayerIds = new LinkedHashSet<>(players);
+
+        notifyPlayers(new OwnedSession(game, target), masterId, copiedPlayerIds,
+                NotificationType.SESSION_SCHEDULED);
+
         return toResponse(target, copiedPlayerIds);
     }
 

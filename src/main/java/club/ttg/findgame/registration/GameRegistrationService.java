@@ -122,7 +122,7 @@ public class GameRegistrationService {
      */
     @Transactional
     public void withdraw(UUID playerId, UUID gameId) {
-        gameRepository.findByIdForUpdate(gameId)
+        Game game = gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         GameRegistration registration = registrationRepository
                 .findByGameIdAndPlayerId(gameId, playerId)
@@ -133,6 +133,12 @@ public class GameRegistrationService {
         }
 
         registrationRepository.delete(registration);
+
+        // Ушедшего игрока мастер иначе не заметит: заявка удаляется, и место
+        // в составе освобождается молча — вплоть до пустого стола к встрече.
+        notificationService.notifyUser(
+                game.getMasterId(), playerId, NotificationType.REGISTRATION_WITHDRAWN,
+                game.getId(), game.getTitle(), null, null);
     }
 
     /**
@@ -163,6 +169,10 @@ public class GameRegistrationService {
                 .findByIdAndGameId(registrationId, gameId)
                 .orElseThrow(() -> new SessionRegistrationNotFoundException(registrationId));
 
+        // Прежний статус решает, чем стал отказ: по заявке новичка это отказ,
+        // а по принятому игроку — исключение из состава.
+        RegistrationStatus previousStatus = registration.getStatus();
+
         if (request.decision() == RegistrationDecision.APPROVE) {
             approve(game, registration);
         } else {
@@ -171,11 +181,9 @@ public class GameRegistrationService {
 
         GameRegistration saved = registrationRepository.save(registration);
 
-        if (saved.getStatus() == RegistrationStatus.APPROVED) {
-            notificationService.notifyUser(
-                    saved.getPlayerId(), masterId, NotificationType.REGISTRATION_APPROVED,
-                    game.getId(), game.getTitle(), null, null);
-        }
+        notificationService.notifyUser(
+                saved.getPlayerId(), masterId, decisionNotification(previousStatus, saved.getStatus()),
+                game.getId(), game.getTitle(), null, null);
 
         return toResponse(saved);
     }
@@ -265,6 +273,20 @@ public class GameRegistrationService {
                 .findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
                 .map(GameRegistration::getPlayerId)
                 .toList();
+    }
+
+    /** Повод уведомления по решению мастера: принято, отказано или исключён. */
+    private static NotificationType decisionNotification(
+            RegistrationStatus previousStatus,
+            RegistrationStatus currentStatus
+    ) {
+        if (currentStatus == RegistrationStatus.APPROVED) {
+            return NotificationType.REGISTRATION_APPROVED;
+        }
+
+        return previousStatus == RegistrationStatus.APPROVED
+                ? NotificationType.PLAYER_REMOVED
+                : NotificationType.REGISTRATION_REJECTED;
     }
 
     private void approve(Game game, GameRegistration registration) {

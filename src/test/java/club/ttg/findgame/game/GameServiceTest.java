@@ -4,6 +4,7 @@ import club.ttg.findgame.account.AuthAccountClient;
 import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
+import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
@@ -69,6 +70,9 @@ class GameServiceTest {
 
     @Mock
     private AuthAccountClient authAccountClient;
+
+    @Mock
+    private NotificationService notificationService;
 
     /** Токен запроса: им сервис спрашивает состояние учётной записи у auth-service. */
     private static final String ACCESS_TOKEN = "access-token";
@@ -422,7 +426,8 @@ class GameServiceTest {
                 authAccountClient,
                 sessionRepository,
                 registrationRepository,
-                followService);
+                followService,
+                notificationService);
     }
 
     @Test

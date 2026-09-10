@@ -4,6 +4,8 @@ import club.ttg.findgame.account.AuthAccountClient;
 import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
+import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.NextGameSessionResponse;
 import club.ttg.findgame.registration.GameRegistration;
@@ -70,6 +72,8 @@ public class GameService {
     private final GameRegistrationRepository registrationRepository;
     // Новую игру ждут те, кто отметил мастера: без рассылки отметка бесполезна.
     private final FollowService followService;
+    // Об исходе игры её состав узнаёт уведомлением.
+    private final NotificationService notificationService;
 
     public GameService(
             GameRepository repository,
@@ -80,7 +84,8 @@ public class GameService {
             AuthAccountClient authAccountClient,
             GameSessionRepository sessionRepository,
             GameRegistrationRepository registrationRepository,
-            FollowService followService
+            FollowService followService,
+            NotificationService notificationService
     ) {
         this.repository = repository;
         this.raiseRepository = raiseRepository;
@@ -91,6 +96,7 @@ public class GameService {
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.followService = followService;
+        this.notificationService = notificationService;
     }
 
     @Transactional
@@ -316,6 +322,27 @@ public class GameService {
         }
         game.setStatus(status);
         repository.save(game);
+
+        // Об исходе игры состав узнаёт только отсюда: сессии при её закрытии
+        // не трогаются, и в расписании игрока ничего не меняется.
+        notificationService.notifyUsers(
+                approvedPlayerIds(gameId), masterId, finishNotification(status),
+                game.getId(), game.getTitle(), null, null);
+    }
+
+    /** Отменённая игра и сыгранная — разные новости для игрока. */
+    private static NotificationType finishNotification(GameStatus status) {
+        return status == GameStatus.CANCELLED
+                ? NotificationType.GAME_CANCELLED
+                : NotificationType.GAME_CLOSED;
+    }
+
+    /** Принятые в игру: им адресованы новости об игре целиком. */
+    private List<UUID> approvedPlayerIds(UUID gameId) {
+        return registrationRepository
+                .findAllByGameIdAndStatus(gameId, RegistrationStatus.APPROVED).stream()
+                .map(GameRegistration::getPlayerId)
+                .toList();
     }
 
     @Transactional

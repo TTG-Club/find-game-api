@@ -9,7 +9,16 @@ public enum NotificationType {
     /** Мастер принял заявку игрока. */
     REGISTRATION_APPROVED,
 
-    /** Мастер назначил дату сессии, объявленной с открытой датой. */
+    /** Мастер отказал по заявке. */
+    REGISTRATION_REJECTED,
+
+    /** Игрок отозвал заявку или вышел из состава сам. */
+    REGISTRATION_WITHDRAWN,
+
+    /** Мастер исключил принятого игрока из игры. */
+    PLAYER_REMOVED,
+
+    /** В игре назначена новая встреча. */
     SESSION_SCHEDULED,
 
     /** Сессия началась. */
@@ -20,6 +29,12 @@ public enum NotificationType {
 
     /** Сессия отменена. */
     SESSION_CANCELLED,
+
+    /** Игра завершена: мастер отыграл её до конца. */
+    GAME_CLOSED,
+
+    /** Игра отменена: она не состоялась. */
+    GAME_CANCELLED,
 
     /** Отмеченный мастер объявил новую игру. */
     MASTER_PUBLISHED_GAME,

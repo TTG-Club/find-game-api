@@ -197,6 +197,33 @@ class GameRegistrationServiceTest {
         // отменённых его участие остаётся историей.
         verify(participantRepository).deleteBySessionIdInAndPlayerId(
                 List.of(scheduledId, inProgressId), playerId);
+
+        // Исключённому приходит не отказ по заявке: он уже был в составе.
+        verify(notificationService).notifyUser(
+                eq(playerId), eq(masterId), eq(NotificationType.PLAYER_REMOVED),
+                eq(gameId), any(), eq(null), eq(null));
+    }
+
+    @Test
+    void rejectedApplicantIsNotified() {
+        UUID masterId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(masterId, gameId);
+        GameRegistration registration = registration(gameId, playerId, RegistrationStatus.PENDING);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByIdAndGameId(registration.getId(), gameId))
+                .thenReturn(Optional.of(registration));
+        when(sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(List.of());
+        when(registrationRepository.save(any(GameRegistration.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().review(masterId, gameId, registration.getId(),
+                new ReviewGameRegistrationRequest(RegistrationDecision.REJECT, "Состав собран"));
+
+        verify(notificationService).notifyUser(
+                eq(playerId), eq(masterId), eq(NotificationType.REGISTRATION_REJECTED),
+                eq(gameId), any(), eq(null), eq(null));
     }
 
     @Test
@@ -267,6 +294,12 @@ class GameRegistrationServiceTest {
         // Отозванная удаляется, а не помечается: на отклонённую заявку игрок
         // повторно подать уже не сможет, а на отозванную — да.
         verify(registrationRepository).delete(registration);
+
+        // Мастер иначе не узнает об уходе: заявка исчезает бесследно.
+        verify(notificationService).notifyUser(
+                eq(game.getMasterId()), eq(playerId),
+                eq(NotificationType.REGISTRATION_WITHDRAWN),
+                eq(gameId), any(), eq(null), eq(null));
     }
 
     @Test
