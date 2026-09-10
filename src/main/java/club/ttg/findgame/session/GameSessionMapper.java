@@ -17,5 +17,6 @@ public interface GameSessionMapper {
     GameSession toEntity(CreateGameSessionRequest request);
 
     @Mapping(target = "registeredPlayerIds", ignore = true)
+    @Mapping(target = "confirmedPlayerIds", ignore = true)
     GameSessionResponse toResponse(GameSession session);
 }

@@ -334,10 +334,48 @@ class GameSessionServiceTest {
                 .thenReturn(Optional.of(session));
         when(sessionRepository.save(any(GameSession.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(List.of(participant(sessionId, SessionAttendanceStatus.ATTENDING)));
 
         GameSessionResponse response = service().start(masterId, gameId, sessionId);
 
         assertThat(response.status()).isEqualTo(GameSessionStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void sessionWithoutConfirmedPlayersIsNotStarted() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = new GameSession();
+        session.setStatus(GameSessionStatus.SCHEDULED);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+        // В составе есть игроки, но участие не подтвердил никто.
+        when(registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(List.of(
+                        participant(sessionId, SessionAttendanceStatus.UNMARKED),
+                        participant(sessionId, SessionAttendanceStatus.NOT_ATTENDING)));
+
+        assertThatThrownBy(() -> service().start(masterId, gameId, sessionId))
+                .isInstanceOf(InvalidGameSessionStateException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    /** Участник встречи с заданной отметкой присутствия. */
+    private static SessionRegistration participant(
+            UUID sessionId,
+            SessionAttendanceStatus attendanceStatus
+    ) {
+        SessionRegistration participant =
+                SessionRegistration.of(sessionId, UUID.randomUUID());
+
+        participant.setAttendanceStatus(attendanceStatus);
+
+        return participant;
     }
 
     @Test

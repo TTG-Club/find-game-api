@@ -20,6 +20,12 @@ public record GameSessionResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) String priceCurrency,
         @JsonInclude(JsonInclude.Include.NON_NULL) SessionPaymentType paymentType,
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant completedAt,
-        Set<UUID> registeredPlayerIds
+        Set<UUID> registeredPlayerIds,
+
+        /**
+         * Кто подтвердил участие. Мастеру по нему видно, можно ли начинать
+         * встречу: без единого подтверждения сервис её не начнёт.
+         */
+        Set<UUID> confirmedPlayerIds
 ) {
 }

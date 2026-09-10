@@ -14,6 +14,7 @@ import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.registration.GameRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistrationRepository;
 import club.ttg.findgame.registration.SessionRegistration;
+import club.ttg.findgame.registration.SessionAttendanceStatus;
 import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
@@ -281,11 +282,20 @@ public class GameSessionService {
             throw new InvalidGameSessionStateException(
                     "Начать можно только запланированную сессию");
         }
+        List<SessionRegistration> participants = participants(sessionId);
+        Set<UUID> confirmed = confirmedPlayerIds(participants);
+
+        if (confirmed.isEmpty()) {
+            throw new InvalidGameSessionStateException(
+                    "Начать встречу можно, когда хотя бы один игрок подтвердил участие");
+        }
 
         session.setStatus(GameSessionStatus.IN_PROGRESS);
 
-        Set<UUID> players = approvedPlayerIds(sessionId);
-        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+        Set<UUID> players = playerIds(participants);
+
+        GameSessionResponse response =
+                toResponse(sessionRepository.save(session), players, confirmed);
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_STARTED);
         publishToNexus(gameId, masterId, SESSION_STARTED_MESSAGE);
@@ -318,8 +328,11 @@ public class GameSessionService {
         session.setCompletedAt(Instant.now());
         financeService.finish(owned.game(), session, false, masterId);
 
-        Set<UUID> players = approvedPlayerIds(sessionId);
-        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+        List<SessionRegistration> participants = participants(sessionId);
+        Set<UUID> players = playerIds(participants);
+
+        GameSessionResponse response = toResponse(
+                sessionRepository.save(session), players, confirmedPlayerIds(participants));
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_COMPLETED);
         publishToNexus(gameId, masterId, SESSION_COMPLETED_MESSAGE);
@@ -349,8 +362,11 @@ public class GameSessionService {
         session.setStatus(GameSessionStatus.CANCELLED);
         financeService.finish(owned.game(), session, true, masterId);
 
-        Set<UUID> players = approvedPlayerIds(sessionId);
-        GameSessionResponse response = toResponse(sessionRepository.save(session), players);
+        List<SessionRegistration> participants = participants(sessionId);
+        Set<UUID> players = playerIds(participants);
+
+        GameSessionResponse response = toResponse(
+                sessionRepository.save(session), players, confirmedPlayerIds(participants));
 
         notifyPlayers(owned, masterId, players, NotificationType.SESSION_CANCELLED);
         publishToNexus(gameId, masterId, SESSION_CANCELLED_MESSAGE);
@@ -455,10 +471,15 @@ public class GameSessionService {
         }
 
         List<GameSession> sessions = sessionRepository.findAllByGameIdOrderByStartsAtAsc(gameId);
-        Map<UUID, Set<UUID>> approvedPlayers = approvedPlayersBySession(sessions);
+        Map<UUID, List<SessionRegistration>> participants = participantsBySession(sessions);
         return sessions.stream()
-                .map(session -> toResponse(
-                        session, approvedPlayers.getOrDefault(session.getId(), Set.of())))
+                .map(session -> {
+                    List<SessionRegistration> sessionParticipants =
+                            participants.getOrDefault(session.getId(), List.of());
+
+                    return toResponse(session, playerIds(sessionParticipants),
+                            confirmedPlayerIds(sessionParticipants));
+                })
                 .toList();
     }
 
@@ -487,31 +508,64 @@ public class GameSessionService {
     }
 
     /** Участники сессии — их идентификаторы уходят в ответ. */
-    private Set<UUID> approvedPlayerIds(UUID sessionId) {
-        return registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId).stream()
+    /** Участники встречи: из них берутся и состав, и подтверждения. */
+    private List<SessionRegistration> participants(UUID sessionId) {
+        return registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId);
+    }
+
+    private static Set<UUID> playerIds(List<SessionRegistration> participants) {
+        return participants.stream()
                 .map(SessionRegistration::getPlayerId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    private Map<UUID, Set<UUID>> approvedPlayersBySession(List<GameSession> sessions) {
+    /**
+     * Кто подтвердил участие.
+     *
+     * Без единого подтверждения встречу не начать: иначе счётчик сыгранных у
+     * мастера набивался бы пустыми сессиями, начатыми и закрытыми в одиночку.
+     */
+    private static Set<UUID> confirmedPlayerIds(List<SessionRegistration> participants) {
+        return participants.stream()
+                .filter(participant ->
+                        participant.getAttendanceStatus() == SessionAttendanceStatus.ATTENDING)
+                .map(SessionRegistration::getPlayerId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<UUID> approvedPlayerIds(UUID sessionId) {
+        return playerIds(participants(sessionId));
+    }
+
+    /** Составы всех встреч игры одним запросом: и участники, и подтвердившие. */
+    private Map<UUID, List<SessionRegistration>> participantsBySession(List<GameSession> sessions) {
         if (sessions.isEmpty()) {
             return Map.of();
         }
         List<UUID> sessionIds = sessions.stream().map(GameSession::getId).toList();
-        Map<UUID, Set<UUID>> result = new LinkedHashMap<>();
+        Map<UUID, List<SessionRegistration>> result = new LinkedHashMap<>();
         registrationRepository.findAllBySessionIdIn(sessionIds)
                 .forEach(registration -> result
-                        .computeIfAbsent(registration.getSessionId(), ignored -> new LinkedHashSet<>())
-                        .add(registration.getPlayerId()));
+                        .computeIfAbsent(registration.getSessionId(), ignored -> new ArrayList<>())
+                        .add(registration));
         return result;
     }
 
+    /** Ответ по только что заведённой встрече: подтверждать её ещё некому. */
     private GameSessionResponse toResponse(GameSession session, Set<UUID> registeredPlayerIds) {
+        return toResponse(session, registeredPlayerIds, Set.of());
+    }
+
+    private GameSessionResponse toResponse(
+            GameSession session,
+            Set<UUID> registeredPlayerIds,
+            Set<UUID> confirmedPlayerIds
+    ) {
         GameSessionResponse response = mapper.toResponse(session);
         return new GameSessionResponse(
                 response.id(), response.gameId(), response.title(), response.startsAt(),
                 response.estimatedDurationMinutes(), response.status(),
                 response.priceAmount(), response.priceCurrency(), response.paymentType(),
-                response.completedAt(), registeredPlayerIds);
+                response.completedAt(), registeredPlayerIds, confirmedPlayerIds);
     }
 }
