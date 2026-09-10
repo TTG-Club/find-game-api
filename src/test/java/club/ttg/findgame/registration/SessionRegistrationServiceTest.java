@@ -9,6 +9,7 @@ import club.ttg.findgame.session.GameSessionStatus;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.*;
@@ -23,7 +24,7 @@ class SessionRegistrationServiceTest {
             mock(club.ttg.findgame.finance.GameFinanceService.class));
 
     @Test
-    void playerCanSetAndResetOwnAttendanceForShownSession() {
+    void playerCanSetOwnAttendanceForShownSession() {
         UUID gameId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
@@ -37,12 +38,32 @@ class SessionRegistrationServiceTest {
         when(participants.save(participation)).thenReturn(participation);
 
         assertThat(participation.getAttendanceStatus()).isEqualTo(SessionAttendanceStatus.UNMARKED);
-        for (SessionAttendanceStatus status : SessionAttendanceStatus.values()) {
+        for (SessionAttendanceStatus status : List.of(
+                SessionAttendanceStatus.ATTENDING,
+                SessionAttendanceStatus.NOT_ATTENDING)) {
             var result = service.updateAttendance(playerId, gameId, sessionId, new UpdateAttendanceRequest(status));
             assertThat(result.attendanceStatus()).isEqualTo(status);
             assertThat(result.sessionId()).isEqualTo(sessionId);
             assertThat(result.playerId()).isEqualTo(playerId);
         }
+    }
+
+    @Test
+    void playerCannotResetAttendanceToInitialStatus() {
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        Game game = mock(Game.class);
+        GameSession session = mock(GameSession.class);
+        when(session.getStatus()).thenReturn(GameSessionStatus.SCHEDULED);
+        when(games.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessions.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> service.updateAttendance(playerId, gameId, sessionId,
+                new UpdateAttendanceRequest(SessionAttendanceStatus.UNMARKED)))
+                .isInstanceOf(InvalidSessionRegistrationException.class);
+
+        verify(participants, never()).save(any());
     }
 
     @Test

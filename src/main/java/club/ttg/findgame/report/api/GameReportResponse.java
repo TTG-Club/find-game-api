@@ -10,6 +10,7 @@ public record GameReportResponse(
         UUID id,
         UUID gameId,
         String gameTitle,
+        boolean gameDeleted,
         UUID reporterId,
         GameReportReason reason,
         String details,

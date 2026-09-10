@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.Instant;
@@ -59,6 +60,9 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
     boolean existsByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
 
     Page<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId, Pageable pageable);
+
+    /** Активные объявления мастера для одного модераторского решения. */
+    List<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId);
 
     /**
      * Игры, к которым пользователь причастен: свои как мастер и те, куда он

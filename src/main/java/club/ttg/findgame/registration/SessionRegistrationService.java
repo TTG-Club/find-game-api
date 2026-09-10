@@ -120,6 +120,9 @@ public class SessionRegistrationService {
         if (session.getStatus() == GameSessionStatus.COMPLETED || session.getStatus() == GameSessionStatus.CANCELLED) {
             throw new InvalidSessionRegistrationException("Нельзя менять присутствие в закрытой сессии");
         }
+        if (request.attendanceStatus() == SessionAttendanceStatus.UNMARKED) {
+            throw new InvalidSessionRegistrationException("Нельзя вернуть присутствие к исходной отметке");
+        }
 
         SessionRegistration participation = participantRepository
                 .findBySessionIdAndPlayerId(sessionId, playerId)

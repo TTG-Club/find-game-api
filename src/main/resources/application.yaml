@@ -23,6 +23,9 @@ springdoc:
 
 auth-service:
   jwt-secret: ${AUTH_SERVICE_JWT_SECRET}
+  base-url: ${AUTH_SERVICE_URL:http://localhost:8081}
+  connect-timeout: ${AUTH_SERVICE_CONNECT_TIMEOUT:2s}
+  read-timeout: ${AUTH_SERVICE_READ_TIMEOUT:3s}
 
 subscriber-service:
   base-url: ${SUBSCRIBER_SERVICE_URL:http://localhost:8083}

@@ -110,7 +110,7 @@ public class GameFinanceService {
         }
         entries.save(new FinanceEntry(request.operationId(), gameId, playerId, null, request.amount(),
                 request.currency(), request.kind(), request.comment(), actorId));
-        settleDebts(gameId, playerId, request.currency(), request.amount().max(BigDecimal.ZERO), actorId);
+        settleDebts(gameId, playerId, request.currency(), actorId);
     }
 
     /** Списывает доступный аванс; недостаток не превращается в долг до завершения встречи. */
@@ -203,29 +203,62 @@ public class GameFinanceService {
 
     /** Снимает начисление; подтверждённые внешние платежи остаются авансом игрока. */
     private void exempt(SessionBill bill, UUID actorId) {
-        BigDecimal released = bill.getBooked();
         book(bill, BigDecimal.ZERO, actorId, "RELEASE");
         bill.setExempt(true);
         bill.setFinalized(true);
         bill.setSettled(BigDecimal.ZERO);
         bill.setClaimed(BigDecimal.ZERO);
         saveBill(bill);
-        settleDebts(bill.getGameId(), bill.getPlayerId(), bill.getCurrency(), released, actorId);
+        settleDebts(bill.getGameId(), bill.getPlayerId(), bill.getCurrency(), actorId);
     }
 
-    /** Пополнение сначала погашает старые начисленные долги в той же валюте. */
-    private void settleDebts(UUID gameId, UUID playerId, String currency, BigDecimal credit, UUID actorId) {
-        BigDecimal remainingCredit = credit;
-        for (SessionBill bill : bills.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId)) {
-            if (!bill.isFinalized() || bill.isExempt() || !currency.equals(bill.getCurrency())) continue;
-            BigDecimal allocated = bill.remaining().min(remainingCredit);
+    /**
+     * Свободные деньги счёта сразу закрывают начисленные долги и бронируют
+     * ближайшие встречи: депозит не должен лежать рядом с долгом, который он
+     * покрывает. Порядок — от ранней встречи к поздней, поэтому сначала
+     * гасится долг за прошедшую сессию и лишь остаток резервирует будущие.
+     */
+    private void settleDebts(UUID gameId, UUID playerId, String currency, UUID actorId) {
+        List<SessionBill> playerBills = bills.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId);
+        BigDecimal credit = freeCredit(playerBills, gameId, playerId, currency);
+        if (credit.signum() == 0) return;
+        for (GameSession session : sessions.findAllByGameIdOrderByStartsAtAsc(gameId)) {
+            SessionBill bill = playerBills.stream()
+                    .filter(candidate -> candidate.getSessionId().equals(session.getId())).findFirst()
+                    .orElseGet(() -> openBill(session, playerId, currency, actorId));
+            if (bill == null || bill.isExempt() || !currency.equals(bill.getCurrency())) continue;
+            BigDecimal allocated = bill.remaining().min(credit);
+            if (allocated.signum() == 0) continue;
             bill.setSettled(bill.getSettled().add(allocated));
+            book(bill, bill.getSettled().max(bill.getBooked()), actorId, "RESERVATION");
             bill.setClaimed(bill.getClaimed().min(bill.remaining()));
-            if (allocated.signum() > 0) record(bill, allocated.negate(), "DEBT_SETTLEMENT", actorId);
-            remainingCredit = remainingCredit.subtract(allocated);
             saveBill(bill);
-            if (remainingCredit.signum() == 0) break;
+            credit = credit.subtract(allocated);
+            if (credit.signum() == 0) return;
         }
+    }
+
+    /**
+     * Свободные деньги — остаток счёта плюс уже списанные, но не закрытые
+     * начисления: долг завершённой встречи снят с баланса при её закрытии,
+     * поэтому учитывать его вторично нельзя.
+     */
+    private BigDecimal freeCredit(List<SessionBill> playerBills, UUID gameId, UUID playerId, String currency) {
+        BigDecimal credit = balance(gameId, playerId, currency);
+        for (SessionBill bill : playerBills) {
+            if (bill.isExempt() || !currency.equals(bill.getCurrency())) continue;
+            credit = credit.add(bill.getBooked().subtract(bill.getSettled()).max(BigDecimal.ZERO));
+        }
+        return credit.max(BigDecimal.ZERO);
+    }
+
+    /** Заводит расчёт предстоящей встречи, в которой игрок участвует. */
+    private SessionBill openBill(GameSession session, UUID playerId, String currency, UUID actorId) {
+        if (isClosed(session) || session.getPriceAmount() == null || !currency.equals(session.getPriceCurrency())) {
+            return null;
+        }
+        return participants.findBySessionIdAndPlayerId(session.getId(), playerId)
+                .map(participation -> newBill(session, participation, actorId)).orElse(null);
     }
 
     /** Фиксирует только разницу начисления: повторный вызов ничего не списывает. */

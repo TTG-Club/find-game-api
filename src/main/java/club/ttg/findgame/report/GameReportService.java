@@ -52,19 +52,24 @@ public class GameReportService {
     public Page<GameReportResponse> findAll(int page, int size) {
         Page<GameReport> reports = reportRepository.findAllByOrderByCreatedAtDesc(
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
-        Map<UUID, String> titles = gameRepository.findAllById(
+        Map<UUID, Game> games = gameRepository.findAllById(
                         reports.map(GameReport::getGameId).toList())
                 .stream()
-                .collect(Collectors.toMap(Game::getId, Game::getTitle));
+                .collect(Collectors.toMap(Game::getId, game -> game));
 
-        return reports.map(report -> new GameReportResponse(
-                report.getId(),
-                report.getGameId(),
-                titles.getOrDefault(report.getGameId(), "Удалённая игра"),
-                report.getReporterId(),
-                report.getReason(),
-                report.getDetails(),
-                report.getCreatedAt()));
+        return reports.map(report -> {
+            Game game = games.get(report.getGameId());
+
+            return new GameReportResponse(
+                    report.getId(),
+                    report.getGameId(),
+                    game == null ? "Удалённая игра" : game.getTitle(),
+                    game != null && game.getDeletedAt() != null,
+                    report.getReporterId(),
+                    report.getReason(),
+                    report.getDetails(),
+                    report.getCreatedAt());
+        });
     }
 
     private static String normalizeDetails(String details) {

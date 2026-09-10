@@ -1,5 +1,7 @@
 package club.ttg.findgame.game;
 
+import club.ttg.findgame.account.AuthAccountClient;
+import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
@@ -59,6 +61,9 @@ public class GameService {
     private final GameMapper mapper;
     private final SubscriptionStatusClient subscriptionStatusClient;
     private final GameCreationLockService creationLockService;
+    // Объявление видят все, поэтому заводить его вправе только владелец
+    // подтверждённого адреса — иначе игру создаст любая одноразовая почта.
+    private final AuthAccountClient authAccountClient;
     // Нужны редактированию: правка не должна расходиться с уже созданными
     // сессиями и принятыми в них игроками.
     private final GameSessionRepository sessionRepository;
@@ -72,6 +77,7 @@ public class GameService {
             GameMapper mapper,
             SubscriptionStatusClient subscriptionStatusClient,
             GameCreationLockService creationLockService,
+            AuthAccountClient authAccountClient,
             GameSessionRepository sessionRepository,
             GameRegistrationRepository registrationRepository,
             FollowService followService
@@ -81,13 +87,15 @@ public class GameService {
         this.mapper = mapper;
         this.subscriptionStatusClient = subscriptionStatusClient;
         this.creationLockService = creationLockService;
+        this.authAccountClient = authAccountClient;
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.followService = followService;
     }
 
     @Transactional
-    public GameResponse create(UUID masterId, String username, CreateGameRequest request) {
+    public GameResponse create(UUID masterId, String username, String accessToken, CreateGameRequest request) {
+        requireVerifiedEmail(accessToken);
         if (request.playersToStart() > request.maxPlayers()) {
             throw new InvalidPlayerCountException();
         }
@@ -462,9 +470,29 @@ public class GameService {
     public void delete(UUID gameId, String reason) {
         Game game = repository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
-        game.setDeletedAt(Instant.now());
-        game.setDeletionReason(reason == null ? null : reason.trim());
+        hide(game, reason, Instant.now());
         repository.save(game);
+    }
+
+    /**
+     * Скрывает все активные игры мастера, которому принадлежит указанная игра.
+     * Саму игру ищем без отбора по `deletedAt`: модератор может сначала скрыть
+     * одну игру из жалобы, а затем принять решение о всех объявлениях автора.
+     */
+    @Transactional
+    public void deleteAllByReportedGame(UUID reportedGameId, String reason) {
+        Game reportedGame = repository.findById(reportedGameId)
+                .orElseThrow(() -> new GameNotFoundException(reportedGameId));
+        Instant deletedAt = Instant.now();
+
+        repository.findAllByMasterIdAndDeletedAtIsNull(reportedGame.getMasterId())
+                .forEach(game -> hide(game, reason, deletedAt));
+    }
+
+    /** Записывает единые данные мягкого удаления для одного решения модератора. */
+    private static void hide(Game game, String reason, Instant deletedAt) {
+        game.setDeletedAt(deletedAt);
+        game.setDeletionReason(reason == null ? null : reason.trim());
     }
 
     /**
@@ -572,6 +600,19 @@ public class GameService {
         }
         if (minAge != null && maxAge != null && minAge > maxAge) {
             throw new InvalidGameDetailsException("Минимальный возраст не может превышать максимальный");
+        }
+    }
+
+    /**
+     * Пускает к созданию игры только подтверждённый адрес.
+     *
+     * Спрашивается у auth-service тем же токеном, с которым пришёл запрос:
+     * подтверждение приходит между выдачей токена и созданием игры, и по
+     * старому токену мастер получил бы отказ уже после подтверждения.
+     */
+    private void requireVerifiedEmail(String accessToken) {
+        if (!authAccountClient.isEmailVerified(accessToken)) {
+            throw new UnverifiedEmailException();
         }
     }
 

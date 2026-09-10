@@ -52,7 +52,11 @@ public class GameController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateGameRequest request
     ) {
-        return service.create(UUID.fromString(jwt.getSubject()), jwt.getClaimAsString("username"), request);
+        return service.create(
+                UUID.fromString(jwt.getSubject()),
+                jwt.getClaimAsString("username"),
+                jwt.getTokenValue(),
+                request);
     }
 
     @GetMapping

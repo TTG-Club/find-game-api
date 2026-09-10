@@ -1,5 +1,7 @@
 package club.ttg.findgame.common;
 
+import club.ttg.findgame.account.AccountStatusUnavailableException;
+import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.chat.ChatAccessDeniedException;
 import club.ttg.findgame.nexus.InvalidNexusException;
 import club.ttg.findgame.nexus.NexusAccessDeniedException;
@@ -65,6 +67,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ActiveGameLimitExceededException.class)
     ProblemDetail handleActiveGameLimit(ActiveGameLimitExceededException exception) {
         return problem(HttpStatus.CONFLICT, "Достигнут лимит активных игр", exception.getMessage());
+    }
+
+    @ExceptionHandler(UnverifiedEmailException.class)
+    ProblemDetail handleUnverifiedEmail(UnverifiedEmailException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Почта не подтверждена", exception.getMessage());
+    }
+
+    @ExceptionHandler(AccountStatusUnavailableException.class)
+    ProblemDetail handleAccountStatusUnavailable(AccountStatusUnavailableException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Проверка учётной записи недоступна", exception.getMessage());
     }
 
     @ExceptionHandler(GameRaiseCooldownException.class)

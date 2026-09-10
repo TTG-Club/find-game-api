@@ -90,6 +90,7 @@ RATE_LIMIT_TRUSTED_PROXIES=172\.20\.0\.5
 docker compose up -d
 export AUTH_SERVICE_JWT_SECRET="<тот же секрет длиной не менее 32 байт, что и в auth-service>"
 export INTERNAL_SERVICE_SECRET="<общий секрет внутренних вызовов>"
+export AUTH_SERVICE_URL="http://localhost:8081"
 export SUBSCRIBER_SERVICE_URL="http://localhost:8083"
 mvn spring-boot:run
 ```
@@ -104,6 +105,11 @@ mvn spring-boot:run
 
 Сервис проверяет access-токены, выпущенные auth-service. Общий HMAC-секрет передаётся через
 `AUTH_SERVICE_JWT_SECRET` и должен совпадать с секретом auth-service.
+
+Создание игры дополнительно требует подтверждённой почты: сервис спрашивает состояние
+учётной записи у auth-service (`AUTH_SERVICE_URL`, по умолчанию `http://localhost:8081`)
+тем же токеном, с которым пришёл запрос. Пока auth-service недоступен, игры не создаются:
+ответ — 503 вместо молчаливого пропуска непроверенного аккаунта.
 
 Как и в comments-api, будущие межсервисные маршруты `/api/v1/internal/**` не используют
 пользовательский JWT. Они защищены заголовком `X-Service-Token`, который должен совпадать с

@@ -194,12 +194,12 @@ class GameControllerSecurityTest {
                         .content(validRequest()))
                 .andExpect(status().isCreated());
 
-        verify(service).create(eq(masterId), eq("game-master"), any());
+        verify(service).create(eq(masterId), eq("game-master"), anyString(), any());
     }
 
     @Test
     void activeGameLimitReturnsConflict() throws Exception {
-        given(service.create(any(UUID.class), anyString(), any()))
+        given(service.create(any(UUID.class), anyString(), anyString(), any()))
                 .willThrow(new ActiveGameLimitExceededException());
 
         mockMvc.perform(post("/api/v1/games")

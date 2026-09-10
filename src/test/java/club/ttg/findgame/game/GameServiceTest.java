@@ -1,5 +1,7 @@
 package club.ttg.findgame.game;
 
+import club.ttg.findgame.account.AuthAccountClient;
+import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.game.api.GameResponse;
@@ -65,6 +67,12 @@ class GameServiceTest {
     @Mock
     private FollowService followService;
 
+    @Mock
+    private AuthAccountClient authAccountClient;
+
+    /** Токен запроса: им сервис спрашивает состояние учётной записи у auth-service. */
+    private static final String ACCESS_TOKEN = "access-token";
+
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
 
     @Test
@@ -127,7 +135,7 @@ class GameServiceTest {
         CreateGameRequest request = request(3, 5, GameVisibility.PRIVATE);
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        GameResponse response = service.create(masterId, "game-master", request);
+        GameResponse response = service.create(masterId, "game-master", ACCESS_TOKEN, request);
 
         ArgumentCaptor<Game> captor = ArgumentCaptor.forClass(Game.class);
         verify(repository).save(captor.capture());
@@ -148,11 +156,23 @@ class GameServiceTest {
     }
 
     @Test
+    void doesNotCreateGameForUnverifiedEmail() {
+        GameService service = service();
+        when(authAccountClient.isEmailVerified(ACCESS_TOKEN)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.create(
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(3, 5, GameVisibility.PUBLIC)))
+                .isInstanceOf(UnverifiedEmailException.class);
+
+        verify(repository, never()).save(any(Game.class));
+    }
+
+    @Test
     void freeMasterDoesNotSeatMoreThanFivePlayers() {
         GameService service = service();
 
         assertThatThrownBy(() -> service.create(
-                UUID.randomUUID(), "game-master", request(3, 6, GameVisibility.PUBLIC)))
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(3, 6, GameVisibility.PUBLIC)))
                 .isInstanceOf(InvalidPlayerCountException.class);
 
         verify(repository, never()).save(any(Game.class));
@@ -166,7 +186,7 @@ class GameServiceTest {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         GameResponse response = service.create(
-                UUID.randomUUID(), "game-master", request(3, 15, GameVisibility.PUBLIC));
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(3, 15, GameVisibility.PUBLIC));
 
         assertThat(response.maxPlayers()).isEqualTo(15);
     }
@@ -178,7 +198,7 @@ class GameServiceTest {
                 Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
 
         assertThatThrownBy(() -> service.create(
-                UUID.randomUUID(), "game-master", request(3, 16, GameVisibility.PUBLIC)))
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(3, 16, GameVisibility.PUBLIC)))
                 .isInstanceOf(InvalidPlayerCountException.class);
     }
 
@@ -187,7 +207,7 @@ class GameServiceTest {
         GameService service = service();
 
         assertThatThrownBy(() -> service.create(
-                UUID.randomUUID(), "game-master", request(6, 5, GameVisibility.PUBLIC)))
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(6, 5, GameVisibility.PUBLIC)))
                 .isInstanceOf(InvalidPlayerCountException.class);
         verify(repository, never()).save(any());
     }
@@ -205,7 +225,7 @@ class GameServiceTest {
                 source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
                 source.visibility(), source.onlinePlatform());
 
-        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
+        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
                 .isInstanceOf(InvalidGameDetailsException.class);
         verify(repository, never()).save(any());
     }
@@ -224,7 +244,7 @@ class GameServiceTest {
                 source.visibility(), source.onlinePlatform());
 
         // Онлайн собирается по ссылке: адрес стола ему не нужен.
-        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", request))
+        assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
                 .isInstanceOf(InvalidGameDetailsException.class);
 
         verify(repository, never()).save(any());
@@ -259,7 +279,7 @@ class GameServiceTest {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), 18, null);
 
-        GameResponse response = service().create(UUID.randomUUID(), "game-master", request);
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
 
         assertThat(response.minAge()).isEqualTo(18);
         assertThat(response.maxAge()).isNull();
@@ -270,7 +290,7 @@ class GameServiceTest {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), null, 30);
 
-        GameResponse response = service().create(UUID.randomUUID(), "game-master", request);
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
 
         assertThat(response.minAge()).isNull();
         assertThat(response.maxAge()).isEqualTo(30);
@@ -280,7 +300,7 @@ class GameServiceTest {
     void rejectsInvertedAgeRange() {
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), 30, 18);
 
-        assertThatThrownBy(() -> service().create(UUID.randomUUID(), "game-master", request))
+        assertThatThrownBy(() -> service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
                 .isInstanceOf(InvalidGameDetailsException.class);
         verify(repository, never()).save(any());
     }
@@ -389,12 +409,17 @@ class GameServiceTest {
     }
 
     private GameService service() {
+        // Почта подтверждена всюду, кроме теста самой проверки: иначе каждый
+        // тест создания игры повторял бы одну и ту же заглушку.
+        lenient().when(authAccountClient.isEmailVerified(ACCESS_TOKEN)).thenReturn(true);
+
         return new GameService(
                 repository,
                 raiseRepository,
                 mapper,
                 subscriptionStatusClient,
                 creationLockService,
+                authAccountClient,
                 sessionRepository,
                 registrationRepository,
                 followService);
@@ -684,12 +709,12 @@ class GameServiceTest {
     void createsGamesWithSelectedPlatformOnlyForOnlineFormat() {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         for (GameOnlinePlatform platform : GameOnlinePlatform.values()) {
-            GameResponse response = service().create(UUID.randomUUID(), "game-master",
+            GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN,
                     request(3, 5, GameVisibility.PUBLIC, GameType.ONLINE, platform));
             assertThat(response.onlinePlatform()).isEqualTo(platform);
         }
         for (GameType type : List.of(GameType.OFFLINE, GameType.TEXT)) {
-            GameResponse response = service().create(UUID.randomUUID(), "game-master",
+            GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN,
                     request(3, 5, GameVisibility.PUBLIC, type, GameOnlinePlatform.VTTG));
             assertThat(response.onlinePlatform()).isNull();
         }
