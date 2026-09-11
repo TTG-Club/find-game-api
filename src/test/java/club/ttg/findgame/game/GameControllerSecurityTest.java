@@ -27,6 +27,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -129,13 +130,14 @@ class GameControllerSecurityTest {
         mockMvc.perform(get("/api/v1/games/my"))
                 .andExpect(status().isUnauthorized());
 
-        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt());
+        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt(), any(), anyBoolean());
     }
 
     @Test
     void ownGamesUseJwtSubjectAsMaster() throws Exception {
         UUID masterId = UUID.randomUUID();
-        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(), anyBoolean()))
+                .willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games/my")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
@@ -143,13 +145,13 @@ class GameControllerSecurityTest {
                         .param("size", "5"))
                 .andExpect(status().isOk());
 
-        verify(service).findOwn(masterId, Set.of(), 1, 5);
+        verify(service).findOwn(masterId, Set.of(), 1, 5, GamePersonalRole.ALL, false);
     }
 
     @Test
     void personalRoleUsesAuthenticatedUser() throws Exception {
         UUID userId = UUID.randomUUID();
-        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(GamePersonalRole.class)))
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(GamePersonalRole.class), anyBoolean()))
                 .willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games/my")
@@ -157,14 +159,28 @@ class GameControllerSecurityTest {
                         .param("role", "APPLICATIONS"))
                 .andExpect(status().isOk());
 
-        verify(service).findOwn(userId, Set.of(), 0, 20, GamePersonalRole.APPLICATIONS);
+        verify(service).findOwn(userId, Set.of(), 0, 20, GamePersonalRole.APPLICATIONS, false);
+    }
+
+    @Test
+    void moderatorHiddenFilterUsesAuthenticatedMaster() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(), anyBoolean()))
+                .willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games/my")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId))
+                        .param("moderatorHidden", "true"))
+                .andExpect(status().isOk());
+
+        verify(service).findOwn(masterId, Set.of(), 0, 20, GamePersonalRole.ALL, true);
     }
 
     @Test
     void guestCannotReadPersonalOverview() throws Exception {
         mockMvc.perform(get("/api/v1/games/my").param("role", "UPCOMING"))
                 .andExpect(status().isUnauthorized());
-        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt(), any());
+        verify(service, never()).findOwn(any(), any(), anyInt(), anyInt(), any(), anyBoolean());
     }
 
     /**
@@ -173,7 +189,8 @@ class GameControllerSecurityTest {
      */
     @Test
     void ownGamesPathIsNotTreatedAsGameId() throws Exception {
-        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findOwn(any(UUID.class), any(), anyInt(), anyInt(), any(), anyBoolean()))
+                .willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games/my")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID())))
@@ -352,30 +369,32 @@ class GameControllerSecurityTest {
 
     @Test
     void administratorCanDeleteGame() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/games/{gameId}", gameId)
                         .header(HttpHeaders.AUTHORIZATION,
-                                "Bearer " + issueToken(UUID.randomUUID(), "ADMIN"))
+                                "Bearer " + issueToken(moderatorId, "ADMIN"))
                         .contentType("application/json")
                         .content("""
                                 {"reason":"Нарушение правил"}
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(service).delete(gameId, "Нарушение правил");
+        verify(service).delete(moderatorId, gameId, "Нарушение правил");
     }
 
     @Test
     void moderatorCanDeleteGame() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/games/{gameId}", gameId)
                         .header(HttpHeaders.AUTHORIZATION,
-                                "Bearer " + issueToken(UUID.randomUUID(), "MODERATOR")))
+                                "Bearer " + issueToken(moderatorId, "MODERATOR")))
                 .andExpect(status().isNoContent());
 
-        verify(service).delete(gameId, null);
+        verify(service).delete(moderatorId, gameId, null);
     }
 
     @Test
@@ -391,7 +410,7 @@ class GameControllerSecurityTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(service, never()).delete(eq(gameId), any());
+        verify(service, never()).delete(any(), eq(gameId), any());
     }
 
     private String validRequest() {

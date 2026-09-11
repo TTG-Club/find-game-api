@@ -1,8 +1,11 @@
 package club.ttg.findgame.game;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,7 +33,11 @@ public class GameModerationController {
     @DeleteMapping("/{gameId}/master-games")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Скрыть все игры мастера по жалобе")
-    public void deleteAllMasterGames(@PathVariable UUID gameId) {
-        service.deleteAllByReportedGame(gameId, ALL_MASTER_GAMES_DELETION_REASON);
+    public void deleteAllMasterGames(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        service.deleteAllByReportedGame(
+                UUID.fromString(jwt.getSubject()), gameId, ALL_MASTER_GAMES_DELETION_REASON);
     }
 }

@@ -5,6 +5,7 @@ import club.ttg.findgame.account.UnverifiedEmailException;
 import club.ttg.findgame.follow.FollowService;
 import club.ttg.findgame.game.api.CreateGameRequest;
 import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.game.api.GameResponse;
 import club.ttg.findgame.game.api.GameSearchFilter;
 import club.ttg.findgame.game.api.UpdateGameRequest;
@@ -133,6 +134,28 @@ class GameServiceTest {
     }
 
     @Test
+    void moderatorHiddenFilterReturnsDeletedGamesOnlyToTheirMaster() {
+        UUID masterId = UUID.randomUUID();
+        Game game = editableGame(UUID.randomUUID(), masterId);
+        Instant hiddenAt = Instant.parse("2026-09-11T10:00:00Z");
+        game.setDeletedAt(hiddenAt);
+        game.setDeletionReason("Нарушение правил");
+        when(repository.findAllByMasterIdAndDeletedAtIsNotNullAndStatusIn(
+                eq(masterId), any(), any())).thenReturn(new PageImpl<>(List.of(game)));
+
+        GameResponse response = service().findOwn(
+                masterId, Set.of(), 0, 20, GamePersonalRole.MASTER, true)
+                .getContent().getFirst();
+
+        assertThat(response.deletedAt()).isEqualTo(hiddenAt);
+        assertThat(response.deletionReason()).isEqualTo("Нарушение правил");
+        verify(repository).findAllByMasterIdAndDeletedAtIsNotNullAndStatusIn(
+                eq(masterId), eq(Set.of(GameStatus.DRAFT, GameStatus.OPEN,
+                        GameStatus.CLOSED, GameStatus.CANCELLED)), any());
+        verify(repository, never()).findPersonal(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void createsPrivateGameAndReturnsInviteCode() {
         GameService service = service();
         UUID masterId = UUID.randomUUID();
@@ -256,16 +279,21 @@ class GameServiceTest {
 
     @Test
     void softDeletesExistingGameWithoutPhysicalRemoval() {
+        UUID moderatorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
-        Game game = new Game();
+        UUID masterId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
 
-        service().delete(gameId, "  Нарушение правил  ");
+        service().delete(moderatorId, gameId, "  Нарушение правил  ");
 
         verify(repository).save(game);
         verify(repository, never()).delete(any(Game.class));
         assertThat(game.getDeletedAt()).isNotNull();
         assertThat(game.getDeletionReason()).isEqualTo("Нарушение правил");
+        verify(notificationService).notifyUser(
+                masterId, moderatorId, NotificationType.GAME_HIDDEN_BY_MODERATOR,
+                gameId, game.getTitle(), null, null, "Нарушение правил");
     }
 
     @Test
@@ -273,7 +301,7 @@ class GameServiceTest {
         UUID gameId = UUID.randomUUID();
         when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service().delete(gameId, null))
+        assertThatThrownBy(() -> service().delete(UUID.randomUUID(), gameId, null))
                 .isInstanceOf(GameNotFoundException.class);
         verify(repository, never()).save(any(Game.class));
     }

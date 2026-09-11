@@ -95,14 +95,15 @@ class GameReportControllerSecurityTest {
 
     @Test
     void moderatorCanHideAllGamesOfReportedMaster() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/moderation/games/{gameId}/master-games", gameId)
                         .header(HttpHeaders.AUTHORIZATION,
-                                "Bearer " + issueToken(UUID.randomUUID(), "MODERATOR")))
+                                "Bearer " + issueToken(moderatorId, "MODERATOR")))
                 .andExpect(status().isNoContent());
 
-        verify(gameService).deleteAllByReportedGame(eq(gameId), any());
+        verify(gameService).deleteAllByReportedGame(eq(moderatorId), eq(gameId), any());
     }
 
     private String issueToken(UUID userId, String role) {

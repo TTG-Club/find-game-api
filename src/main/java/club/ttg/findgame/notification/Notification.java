@@ -51,6 +51,10 @@ public class Notification {
     @Column(name = "session_title", length = 150)
     private String sessionTitle;
 
+    /** Дополнительный текст события, например причина решения модератора. */
+    @Column(length = 1000)
+    private String message;
+
     /** Прочитано; пусто — ещё нет. */
     @Column(name = "read_at")
     private Instant readAt;
@@ -66,6 +70,18 @@ public class Notification {
             UUID sessionId,
             String sessionTitle
     ) {
+        return of(recipientId, type, gameId, gameTitle, sessionId, sessionTitle, null);
+    }
+
+    public static Notification of(
+            UUID recipientId,
+            NotificationType type,
+            UUID gameId,
+            String gameTitle,
+            UUID sessionId,
+            String sessionTitle,
+            String message
+    ) {
         Notification notification = new Notification();
         notification.recipientId = recipientId;
         notification.type = type;
@@ -73,6 +89,7 @@ public class Notification {
         notification.gameTitle = gameTitle;
         notification.sessionId = sessionId;
         notification.sessionTitle = sessionTitle;
+        notification.message = message;
 
         return notification;
     }

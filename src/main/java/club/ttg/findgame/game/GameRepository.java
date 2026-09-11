@@ -75,6 +75,10 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
 
     Page<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId, Pageable pageable);
 
+    /** Скрытые модератором игры доступны только их владельцу. */
+    Page<Game> findAllByMasterIdAndDeletedAtIsNotNullAndStatusIn(
+            UUID masterId, Collection<GameStatus> statuses, Pageable pageable);
+
     /** Активные объявления мастера для одного модераторского решения. */
     List<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId);
 

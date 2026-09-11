@@ -46,6 +46,19 @@ class NotificationServiceTest {
     }
 
     @Test
+    void keepsModeratorMessageInTheNotification() {
+        UUID recipientId = UUID.randomUUID();
+
+        service().notifyUser(
+                recipientId, UUID.randomUUID(), NotificationType.GAME_HIDDEN_BY_MODERATOR,
+                GAME_ID, "Игра", null, null, "Нарушение правил");
+
+        ArgumentCaptor<Notification> saved = ArgumentCaptor.forClass(Notification.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getMessage()).isEqualTo("Нарушение правил");
+    }
+
+    @Test
     void doesNotNotifyTheOneWhoCausedTheEvent() {
         UUID masterId = UUID.randomUUID();
 

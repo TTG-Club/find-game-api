@@ -67,6 +67,8 @@ public record GameResponse(
         Instant createdAt,
         Instant listPositionAt,
         Instant updatedAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant deletedAt,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String deletionReason,
         NextGameSessionResponse nextSession,
         @JsonInclude(JsonInclude.Include.NON_NULL) RegistrationStatus myRegistrationStatus,
         GameOnlinePlatform onlinePlatform
@@ -82,7 +84,8 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, null, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus, onlinePlatform);
+                costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
+                nextSession, myRegistrationStatus, onlinePlatform);
     }
 
     /**
@@ -95,7 +98,8 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, nextSession, myRegistrationStatus, onlinePlatform);
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
+                nextSession, myRegistrationStatus, onlinePlatform);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -105,6 +109,7 @@ public record GameResponse(
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
-                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, session, registrationStatus, onlinePlatform);
+                costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
+                session, registrationStatus, onlinePlatform);
     }
 }

@@ -99,3 +99,5 @@ databaseChangeLog:
       file: db/changelog/changes/049-create-game-reports.sql
   - include:
       file: db/changelog/changes/050-create-favorite-games.sql
+  - include:
+      file: db/changelog/changes/051-add-notification-message.sql

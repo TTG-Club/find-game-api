@@ -41,12 +41,27 @@ public class NotificationService {
             UUID sessionId,
             String sessionTitle
     ) {
+        notifyUser(recipientId, actorId, type, gameId, gameTitle, sessionId, sessionTitle, null);
+    }
+
+    /** Кладёт уведомление с дополнительным текстом события. */
+    @Transactional
+    public void notifyUser(
+            UUID recipientId,
+            UUID actorId,
+            NotificationType type,
+            UUID gameId,
+            String gameTitle,
+            UUID sessionId,
+            String sessionTitle,
+            String message
+    ) {
         if (recipientId == null || recipientId.equals(actorId)) {
             return;
         }
 
         repository.save(Notification.of(
-                recipientId, type, gameId, gameTitle, sessionId, sessionTitle));
+                recipientId, type, gameId, gameTitle, sessionId, sessionTitle, message));
     }
 
     /** То же самое сразу нескольким игрокам. */
@@ -123,6 +138,7 @@ public class NotificationService {
                 notification.getGameTitle(),
                 notification.getSessionId(),
                 notification.getSessionTitle(),
+                notification.getMessage(),
                 notification.getReadAt(),
                 notification.getCreatedAt());
     }

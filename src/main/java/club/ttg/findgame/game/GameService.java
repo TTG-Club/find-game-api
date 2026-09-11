@@ -424,7 +424,7 @@ public class GameService {
             int page,
             int size
     ) {
-        return findOwn(userId, statuses, page, size, GamePersonalRole.ALL);
+        return findOwn(userId, statuses, page, size, GamePersonalRole.ALL, false);
     }
 
     /** Отбирает игры по роли до пагинации и добавляет сведения для карточек. */
@@ -432,15 +432,41 @@ public class GameService {
     public Page<GameResponse> findOwn(
             UUID userId, Set<GameStatus> statuses, int page, int size, GamePersonalRole role
     ) {
+        return findOwn(userId, statuses, page, size, role, false);
+    }
+
+    /**
+     * При {@code moderatorHidden=true} возвращает только мягко удалённые игры
+     * их мастеру. Исходный игровой статус при модерации сохраняется, поэтому
+     * этот отбор отделён от {@link GameStatus}.
+     */
+    @Transactional(readOnly = true)
+    public Page<GameResponse> findOwn(
+            UUID userId,
+            Set<GameStatus> statuses,
+            int page,
+            int size,
+            GamePersonalRole role,
+            boolean moderatorHidden
+    ) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
         // Без отбора отменённые не показываются: они не состоялись, и в общем
         // списке своих игр им место только по прямому запросу.
         Set<GameStatus> wanted = statuses.isEmpty()
-                ? EnumSet.complementOf(EnumSet.of(GameStatus.CANCELLED))
+                ? moderatorHidden
+                    ? EnumSet.allOf(GameStatus.class)
+                    : EnumSet.complementOf(EnumSet.of(GameStatus.CANCELLED))
                 : statuses;
-        Page<Game> games = role == GamePersonalRole.ALL
-                ? repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable)
-                : repository.findPersonal(userId, wanted, role.name(), Instant.now(), PageRequest.of(page, size));
+        Page<Game> games;
+        if (moderatorHidden) {
+            games = role == GamePersonalRole.ALL || role == GamePersonalRole.MASTER
+                    ? repository.findAllByMasterIdAndDeletedAtIsNotNullAndStatusIn(userId, wanted, pageable)
+                    : Page.empty(pageable);
+        } else {
+            games = role == GamePersonalRole.ALL
+                    ? repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable)
+                    : repository.findPersonal(userId, wanted, role.name(), Instant.now(), pageable);
+        }
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
 
         return enrichOverview(games.map(game -> game.getMasterId().equals(userId)
@@ -503,11 +529,12 @@ public class GameService {
     }
 
     @Transactional
-    public void delete(UUID gameId, String reason) {
+    public void delete(UUID moderatorId, UUID gameId, String reason) {
         Game game = repository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         hide(game, reason, Instant.now());
         repository.save(game);
+        notifyHidden(game, moderatorId);
     }
 
     /**
@@ -516,19 +543,35 @@ public class GameService {
      * одну игру из жалобы, а затем принять решение о всех объявлениях автора.
      */
     @Transactional
-    public void deleteAllByReportedGame(UUID reportedGameId, String reason) {
+    public void deleteAllByReportedGame(UUID moderatorId, UUID reportedGameId, String reason) {
         Game reportedGame = repository.findById(reportedGameId)
                 .orElseThrow(() -> new GameNotFoundException(reportedGameId));
         Instant deletedAt = Instant.now();
 
         repository.findAllByMasterIdAndDeletedAtIsNull(reportedGame.getMasterId())
-                .forEach(game -> hide(game, reason, deletedAt));
+                .forEach(game -> {
+                    hide(game, reason, deletedAt);
+                    notifyHidden(game, moderatorId);
+                });
     }
 
     /** Записывает единые данные мягкого удаления для одного решения модератора. */
     private static void hide(Game game, String reason, Instant deletedAt) {
         game.setDeletedAt(deletedAt);
         game.setDeletionReason(reason == null ? null : reason.trim());
+    }
+
+    /** Сообщает владельцу, какое объявление и почему скрыл модератор. */
+    private void notifyHidden(Game game, UUID moderatorId) {
+        notificationService.notifyUser(
+                game.getMasterId(),
+                moderatorId,
+                NotificationType.GAME_HIDDEN_BY_MODERATOR,
+                game.getId(),
+                game.getTitle(),
+                null,
+                null,
+                game.getDeletionReason());
     }
 
     /**

@@ -104,17 +104,21 @@ public class GameController {
             @RequestParam(required = false) Set<GameStatus> status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
-            @RequestParam(defaultValue = "ALL") GamePersonalRole role
+            @RequestParam(defaultValue = "ALL") GamePersonalRole role,
+            @RequestParam(defaultValue = "false") boolean moderatorHidden
     ) {
         if (role == GamePersonalRole.ALL) {
-            return service.findOwn(UUID.fromString(jwt.getSubject()), status == null ? Set.of() : status, page, size);
+            return service.findOwn(
+                    UUID.fromString(jwt.getSubject()), status == null ? Set.of() : status,
+                    page, size, GamePersonalRole.ALL, moderatorHidden);
         }
         return service.findOwn(
                 UUID.fromString(jwt.getSubject()),
                 status == null ? Set.of() : status,
                 page,
                 size,
-                role);
+                role,
+                moderatorHidden);
     }
 
     @GetMapping("/{gameId}")
@@ -204,9 +208,12 @@ public class GameController {
     @Operation(summary = "Скрыть игру мягким удалением (ADMIN или MODERATOR)")
     @SecurityRequirement(name = "bearerAuth")
     public void delete(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
             @Valid @RequestBody(required = false) DeleteGameRequest request
     ) {
-        service.delete(gameId, request == null ? null : request.reason());
+        service.delete(
+                UUID.fromString(jwt.getSubject()), gameId,
+                request == null ? null : request.reason());
     }
 }

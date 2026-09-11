@@ -13,6 +13,7 @@ public record NotificationResponse(
         String gameTitle,
         @JsonInclude(JsonInclude.Include.NON_NULL) UUID sessionId,
         @JsonInclude(JsonInclude.Include.NON_NULL) String sessionTitle,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String message,
         @JsonInclude(JsonInclude.Include.NON_NULL) Instant readAt,
         Instant createdAt
 ) {

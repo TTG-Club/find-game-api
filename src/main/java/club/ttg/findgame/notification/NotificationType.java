@@ -36,6 +36,9 @@ public enum NotificationType {
     /** Игра отменена: она не состоялась. */
     GAME_CANCELLED,
 
+    /** Игра скрыта модератором; пояснение приходит в message. */
+    GAME_HIDDEN_BY_MODERATOR,
+
     /** Отмеченный мастер объявил новую игру. */
     MASTER_PUBLISHED_GAME,
 
