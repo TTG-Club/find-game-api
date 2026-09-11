@@ -18,7 +18,13 @@ import java.time.Instant;
 
 public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificationExecutor<Game> {
 
-    /** Ролевые вкладки и краткая сводка личного кабинета с серверной пагинацией. */
+    /**
+     * Ролевые вкладки и краткая сводка личного кабинета с серверной пагинацией.
+     *
+     * Вкладка избранного показывает лишь то, что пользователь и так вправе
+     * открыть: отметка — закладка, а не пропуск. Чужая приватная игра из
+     * списка уходит вместе с доступом к ней, иначе карточка вела бы на 404.
+     */
     @Query("""
             select game from Game game
             where game.deletedAt is null and game.status in :statuses
@@ -36,6 +42,14 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
                      or exists (select 1 from GameSession session where session.gameId = game.id
                         and session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
                         and session.startsAt is null)))
+                or (:role = 'FAVORITE'
+                    and exists (select 1 from FavoriteGame favorite
+                        where favorite.gameId = game.id and favorite.ownerId = :userId)
+                    and (game.visibility = club.ttg.findgame.game.GameVisibility.PUBLIC
+                         or game.masterId = :userId
+                         or exists (select 1 from GameRegistration registration
+                             where registration.gameId = game.id and registration.playerId = :userId
+                               and registration.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED)))
                 or (:role = 'UPCOMING'
                     and (game.masterId = :userId or exists (select 1 from GameRegistration registration
                         where registration.gameId = game.id and registration.playerId = :userId

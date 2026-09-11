@@ -26,13 +26,33 @@ public record GameSearchFilter(
         Set<String> excludedCities,
         Boolean crossplayAllowed,
         Integer minAge,
-        Integer maxAge
+        Integer maxAge,
+        /**
+         * Сколько мест в игре ещё свободно, не больше этого числа. Ищет почти
+         * собранный стол: {@code 1} оставляет в выдаче игры, где не занято
+         * ровно одно место. Место занимает любая неотклонённая заявка, как и в
+         * {@code takenSeats} карточки.
+         */
+        Integer maxFreeSeats,
+        /**
+         * Скольких игроков игре не хватает до минимума, с которого мастер её
+         * начинает, не больше этого числа. {@code 1} оставляет столы, которым
+         * до старта нужен ровно один человек, {@code 0} — те, что уже набрали
+         * минимум, но ещё берут игроков.
+         */
+        Integer maxSeatsToStart,
+        /**
+         * Оставить только отмеченные игры. Список избранного личный, поэтому
+         * отбор имеет смысл лишь для вошедшего: гостю отмечать нечем, и
+         * выдача для него пуста.
+         */
+        Boolean favorite
 ) {
 
     public static GameSearchFilter empty() {
         return new GameSearchFilter(
                 null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
     }
 
     public GameSearchFilter {

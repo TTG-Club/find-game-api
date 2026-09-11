@@ -392,10 +392,19 @@ public class GameService {
                 .orElse(since.plus(RAISE_WINDOW));
     }
 
+    /**
+     * Публичная выдача каталога.
+     *
+     * @param filter Условия отбора.
+     * @param page Номер страницы с нуля.
+     * @param size Размер страницы.
+     * @param viewerId Кто смотрит; {@code null} — гость. Нужен отбору по
+     * избранному: список отметок личный.
+     */
     @Transactional(readOnly = true)
-    public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size) {
+    public Page<GameResponse> findPublic(GameSearchFilter filter, int page, int size, UUID viewerId) {
         PageRequest pageable = PageRequest.of(page, size, listOrder());
-        Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter), pageable);
+        Page<Game> games = repository.findAll(GameSpecifications.publicGames(filter, viewerId), pageable);
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
         return enrichOverview(games.map(game -> toPublicResponse(game, seats)), null);
     }

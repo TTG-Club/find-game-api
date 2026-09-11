@@ -55,7 +55,7 @@ class GameControllerSecurityTest {
 
     @Test
     void guestCanSearchPublicGames() throws Exception {
-        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt(), any())).willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games"))
                 .andExpect(status().isOk());
@@ -63,7 +63,7 @@ class GameControllerSecurityTest {
 
     @Test
     void combinesIncludedAndExcludedSearchParameters() throws Exception {
-        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt())).willReturn(Page.empty());
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt(), any())).willReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/games")
                         .param("system", "DND_2024,DND_2014")
@@ -74,7 +74,7 @@ class GameControllerSecurityTest {
                 .andExpect(status().isOk());
 
         ArgumentCaptor<GameSearchFilter> captor = ArgumentCaptor.forClass(GameSearchFilter.class);
-        verify(service).findPublic(captor.capture(), eq(0), eq(20));
+        verify(service).findPublic(captor.capture(), eq(0), eq(20), eq(null));
         GameSearchFilter filter = captor.getValue();
         assertThat(filter.systems()).containsExactlyInAnyOrder(GameSystem.DND_2024, GameSystem.DND_2014);
         assertThat(filter.excludedTypes()).containsExactly(GameType.TEXT);
@@ -84,13 +84,33 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void favoriteSearchKnowsWhoIsLooking() throws Exception {
+        // Список отметок личный: без смотрящего отбирать нечего, поэтому
+        // каталог, открытый и гостю, всё же читает токен, когда он есть.
+        UUID viewerId = UUID.randomUUID();
+
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt(), any()))
+                .willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games")
+                        .param("favorite", "true")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(viewerId)))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<GameSearchFilter> captor = ArgumentCaptor.forClass(GameSearchFilter.class);
+
+        verify(service).findPublic(captor.capture(), eq(0), eq(20), eq(viewerId));
+        assertThat(captor.getValue().favorite()).isTrue();
+    }
+
+    @Test
     void rejectsInvertedAgeRange() throws Exception {
         mockMvc.perform(get("/api/v1/games")
                         .param("minAge", "30")
                         .param("maxAge", "18"))
                 .andExpect(status().isBadRequest());
 
-        verify(service, never()).findPublic(any(), anyInt(), anyInt());
+        verify(service, never()).findPublic(any(), anyInt(), anyInt(), any());
     }
 
     @Test

@@ -106,7 +106,7 @@ class GameServiceTest {
         when(sessionRepository.findUpcoming(eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class)))
                 .thenReturn(List.of(nearest, later));
 
-        GameResponse response = service().findPublic(GameSearchFilter.empty(), 0, 20).getContent().getFirst();
+        GameResponse response = service().findPublic(GameSearchFilter.empty(), 0, 20, null).getContent().getFirst();
 
         assertThat(response.nextSession().id()).isEqualTo(nearest.getId());
         assertThat(response.inviteCode()).isNull();
@@ -314,7 +314,7 @@ class GameServiceTest {
     void sortsSearchResultsByLatestListPosition() {
         when(repository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(Page.empty());
 
-        service().findPublic(GameSearchFilter.empty(), 2, 15);
+        service().findPublic(GameSearchFilter.empty(), 2, 15, null);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         verify(repository).findAll(any(Specification.class), pageable.capture());
@@ -339,7 +339,7 @@ class GameServiceTest {
                 RegistrationStatus.APPROVED))
                 .thenReturn(List.of(seatCount(game.getId(), 2, 2)));
 
-        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20, null);
 
         // Игрок записывается в игру целиком, поэтому занятость считается по её
         // заявкам, а не по отдельной встрече.
@@ -360,7 +360,7 @@ class GameServiceTest {
                 RegistrationStatus.APPROVED))
                 .thenReturn(List.of());
 
-        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20, null);
 
         // Игры без заявок в групповой выдаче нет вовсе — это ноль, а не пропуск.
         assertThat(found.getContent()).singleElement()
@@ -380,7 +380,7 @@ class GameServiceTest {
                 RegistrationStatus.APPROVED))
                 .thenReturn(List.of(seatCount(game.getId(), 3, 1)));
 
-        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20);
+        Page<GameResponse> found = service().findPublic(GameSearchFilter.empty(), 0, 20, null);
 
         // Пока мастер разбирает заявку, игрок на место уже претендует, но
         // подтверждённым оно ещё не считается — поэтому чисел два.

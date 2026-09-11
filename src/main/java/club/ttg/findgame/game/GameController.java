@@ -59,9 +59,14 @@ public class GameController {
                 request);
     }
 
+    /**
+     * Каталог открыт и гостю, поэтому токен здесь необязателен. Нужен он
+     * только отбору по избранному: список отметок личный, и без входа он пуст.
+     */
     @GetMapping
     @Operation(summary = "Найти публичные игры")
     public Page<GameResponse> findPublic(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) Set<GameSystem> system,
             @RequestParam(required = false) Set<GameSystem> excludeSystem,
             @RequestParam(required = false) Set<GameType> type,
@@ -77,14 +82,18 @@ public class GameController {
             @RequestParam(required = false) Boolean crossplayAllowed,
             @RequestParam(required = false) @Min(0) @Max(150) Integer minAge,
             @RequestParam(required = false) @Min(0) @Max(150) Integer maxAge,
+            @RequestParam(required = false) @Min(1) @Max(100) Integer maxFreeSeats,
+            @RequestParam(required = false) @Min(0) @Max(100) Integer maxSeatsToStart,
+            @RequestParam(required = false) Boolean favorite,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         GameSearchFilter filter = new GameSearchFilter(
                 system, excludeSystem, type, excludeType,
                 durationType, excludeDurationType, costType, excludeCostType,
-                status, excludeStatus, city, excludeCity, crossplayAllowed, minAge, maxAge);
-        return service.findPublic(filter, page, size);
+                status, excludeStatus, city, excludeCity, crossplayAllowed, minAge, maxAge,
+                maxFreeSeats, maxSeatsToStart, favorite);
+        return service.findPublic(filter, page, size, jwt == null ? null : UUID.fromString(jwt.getSubject()));
     }
 
     @GetMapping("/my")
