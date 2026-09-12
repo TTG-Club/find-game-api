@@ -546,7 +546,7 @@ public class GameService {
      */
     @Transactional
     public void restore(UUID gameId) {
-        Game game = repository.findByIdForUpdate(gameId)
+        Game game = repository.findByIdIncludingDeletedForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
 
         if (game.getDeletedAt() == null) {

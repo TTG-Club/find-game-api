@@ -139,4 +139,9 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select game from Game game where game.id = :id and game.deletedAt is null")
     Optional<Game> findByIdForUpdate(@Param("id") UUID id);
+
+    /** Скрытую игру тоже блокирует: выборка нужна для отмены мягкого удаления. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select game from Game game where game.id = :id")
+    Optional<Game> findByIdIncludingDeletedForUpdate(@Param("id") UUID id);
 }

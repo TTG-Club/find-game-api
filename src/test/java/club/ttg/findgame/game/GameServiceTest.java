@@ -313,7 +313,7 @@ class GameServiceTest {
         game.setDeletedAt(Instant.parse("2026-09-11T10:00:00Z"));
         game.setDeletionReason("Нарушение правил");
         game.setRecruitmentClosed(true);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.findByIdIncludingDeletedForUpdate(gameId)).thenReturn(Optional.of(game));
 
         service().restore(gameId);
 
@@ -330,7 +330,7 @@ class GameServiceTest {
         game.setStatus(GameStatus.CLOSED);
         game.setDeletedAt(Instant.parse("2026-09-11T10:00:00Z"));
         game.setRecruitmentClosed(true);
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.findByIdIncludingDeletedForUpdate(gameId)).thenReturn(Optional.of(game));
 
         service().restore(gameId);
 
@@ -344,7 +344,7 @@ class GameServiceTest {
     void moderatorCannotRestoreVisibleGame() {
         UUID gameId = UUID.randomUUID();
         Game game = editableGame(gameId, UUID.randomUUID());
-        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.findByIdIncludingDeletedForUpdate(gameId)).thenReturn(Optional.of(game));
 
         assertThatThrownBy(() -> service().restore(gameId))
                 .isInstanceOf(InvalidGameDetailsException.class);
