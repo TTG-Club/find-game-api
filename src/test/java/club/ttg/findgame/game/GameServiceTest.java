@@ -307,6 +307,52 @@ class GameServiceTest {
     }
 
     @Test
+    void moderatorRestoresHiddenOpenGameAndRecruitment() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        game.setDeletedAt(Instant.parse("2026-09-11T10:00:00Z"));
+        game.setDeletionReason("Нарушение правил");
+        game.setRecruitmentClosed(true);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        service().restore(gameId);
+
+        assertThat(game.getDeletedAt()).isNull();
+        assertThat(game.getDeletionReason()).isNull();
+        assertThat(game.isRecruitmentClosed()).isFalse();
+        verify(repository).save(game);
+    }
+
+    @Test
+    void moderatorRestorePreservesFinishedGameLifecycle() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        game.setStatus(GameStatus.CLOSED);
+        game.setDeletedAt(Instant.parse("2026-09-11T10:00:00Z"));
+        game.setRecruitmentClosed(true);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        service().restore(gameId);
+
+        assertThat(game.getStatus()).isEqualTo(GameStatus.CLOSED);
+        assertThat(game.isRecruitmentClosed()).isTrue();
+        assertThat(game.getDeletedAt()).isNull();
+        verify(repository).save(game);
+    }
+
+    @Test
+    void moderatorCannotRestoreVisibleGame() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().restore(gameId))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any(Game.class));
+    }
+
+    @Test
     void acceptsOnlyMinimumAge() {
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameRequest request = withAges(request(3, 5, GameVisibility.PUBLIC), 18, null);

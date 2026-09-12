@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -39,5 +40,13 @@ public class GameModerationController {
     ) {
         service.deleteAllByReportedGame(
                 UUID.fromString(jwt.getSubject()), gameId, ALL_MASTER_GAMES_DELETION_REASON);
+    }
+
+    /** Отменяет модераторское скрытие игры. */
+    @PatchMapping("/{gameId}/restore")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Вернуть игру из скрытых")
+    public void restore(@PathVariable UUID gameId) {
+        service.restore(gameId);
     }
 }

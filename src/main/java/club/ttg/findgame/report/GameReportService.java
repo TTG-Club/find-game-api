@@ -7,13 +7,10 @@ import club.ttg.findgame.report.api.CreateGameReportRequest;
 import club.ttg.findgame.report.api.GameReportResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /** Приём жалоб и очередь для модераторов. */
 @Service
@@ -47,29 +44,10 @@ public class GameReportService {
                 normalizeDetails(request.details())));
     }
 
-    /** Возвращает свежие жалобы, включая скрытые объявления для проверки решения модератора. */
+    /** Возвращает свежие жалобы и скрытые модераторами объявления. */
     @Transactional(readOnly = true)
     public Page<GameReportResponse> findAll(int page, int size) {
-        Page<GameReport> reports = reportRepository.findAllByOrderByCreatedAtDesc(
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
-        Map<UUID, Game> games = gameRepository.findAllById(
-                        reports.map(GameReport::getGameId).toList())
-                .stream()
-                .collect(Collectors.toMap(Game::getId, game -> game));
-
-        return reports.map(report -> {
-            Game game = games.get(report.getGameId());
-
-            return new GameReportResponse(
-                    report.getId(),
-                    report.getGameId(),
-                    game == null ? "Удалённая игра" : game.getTitle(),
-                    game != null && game.getDeletedAt() != null,
-                    report.getReporterId(),
-                    report.getReason(),
-                    report.getDetails(),
-                    report.getCreatedAt());
-        });
+        return reportRepository.findModerationQueue(PageRequest.of(page, size));
     }
 
     private static String normalizeDetails(String details) {

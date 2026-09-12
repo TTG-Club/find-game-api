@@ -30,6 +30,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -104,6 +105,31 @@ class GameReportControllerSecurityTest {
                 .andExpect(status().isNoContent());
 
         verify(gameService).deleteAllByReportedGame(eq(moderatorId), eq(gameId), any());
+    }
+
+    @Test
+    void moderatorCanRestoreHiddenGame() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(patch("/api/v1/moderation/games/{gameId}/restore", gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(moderatorId, "MODERATOR")))
+                .andExpect(status().isNoContent());
+
+        verify(gameService).restore(gameId);
+    }
+
+    @Test
+    void regularUserCannotRestoreHiddenGame() throws Exception {
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(patch("/api/v1/moderation/games/{gameId}/restore", gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "USER")))
+                .andExpect(status().isForbidden());
+
+        verify(gameService, never()).restore(gameId);
     }
 
     private String issueToken(UUID userId, String role) {

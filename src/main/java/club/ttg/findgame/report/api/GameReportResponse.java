@@ -14,6 +14,8 @@ public record GameReportResponse(
         UUID reporterId,
         GameReportReason reason,
         String details,
-        Instant createdAt
+        Instant createdAt,
+        Instant gameDeletedAt,
+        String gameDeletionReason
 ) {
 }

@@ -538,6 +538,31 @@ public class GameService {
     }
 
     /**
+     * Отменяет модераторское скрытие игры. Исходный жизненный цикл сохраняется:
+     * открытая игра снова набирает игроков, а черновик или завершённая игра не
+     * превращаются в открытое объявление.
+     *
+     * @param gameId Игра.
+     */
+    @Transactional
+    public void restore(UUID gameId) {
+        Game game = repository.findByIdForUpdate(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+
+        if (game.getDeletedAt() == null) {
+            throw new InvalidGameDetailsException("Игра не скрыта");
+        }
+
+        game.setDeletedAt(null);
+        game.setDeletionReason(null);
+        if (game.getStatus() == GameStatus.OPEN) {
+            game.setRecruitmentClosed(false);
+        }
+
+        repository.save(game);
+    }
+
+    /**
      * Скрывает все активные игры мастера, которому принадлежит указанная игра.
      * Саму игру ищем без отбора по `deletedAt`: модератор может сначала скрыть
      * одну игру из жалобы, а затем принять решение о всех объявлениях автора.
