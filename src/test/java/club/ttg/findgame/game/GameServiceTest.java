@@ -759,6 +759,25 @@ class GameServiceTest {
         assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
     }
 
+    @Test
+    void moderatorSeesHiddenGameWithoutPrivateLinks() {
+        UUID gameId = UUID.randomUUID();
+        Game game = chattyGame(gameId, UUID.randomUUID());
+        Instant hiddenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        game.setDeletedAt(hiddenAt);
+        game.setDeletionReason("Нарушение правил");
+        game.setInviteCode(UUID.randomUUID());
+        when(repository.findById(gameId)).thenReturn(Optional.of(game));
+
+        GameResponse response = service().getForModeration(UUID.randomUUID(), gameId);
+
+        assertThat(response.deletedAt()).isEqualTo(hiddenAt);
+        assertThat(response.deletionReason()).isEqualTo("Нарушение правил");
+        assertThat(response.inviteCode()).isNull();
+        assertThat(response.gameChatUrl()).isNull();
+        verify(repository, never()).findByIdAndDeletedAtIsNull(gameId);
+    }
+
     /** Игра со ссылками на разговоры. */
     private Game chattyGame(UUID gameId, UUID masterId) {
         Game game = editableGame(gameId, masterId);

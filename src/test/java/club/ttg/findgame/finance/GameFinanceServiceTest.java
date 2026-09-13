@@ -89,34 +89,56 @@ class GameFinanceServiceTest {
     }
 
     @Test
-    void topUpReservesUpcomingSession() {
+    void topUpDoesNotReserveUpcomingSession() {
+        UUID gameId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        UUID masterId = UUID.randomUUID();
+        paidGame(gameId, masterId);
+
+        when(bills.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId)).thenReturn(List.of());
+        when(entries.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId))
+                .thenReturn(List.of(entry(gameId, playerId, "500.00", "TOP_UP", masterId)));
+
+        service.addEntry(masterId, gameId, playerId, topUp("500.00"));
+
+        verify(entries, times(1)).save(any(FinanceEntry.class));
+        verify(bills, never()).save(any(SessionBill.class));
+    }
+
+    @Test
+    void balanceIsChargedOnlyWhenPaidSessionIsCompleted() {
         UUID gameId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
         UUID masterId = UUID.randomUUID();
         Game game = paidGame(gameId, masterId);
         GameSession session = mock(GameSession.class);
+        SessionRegistration participation = SessionRegistration.of(sessionId, playerId);
+        participation.setAttendanceStatus(SessionAttendanceStatus.ATTENDING);
+        SessionBill bill = bill(gameId, sessionId, playerId, "300.00");
 
         when(session.getId()).thenReturn(sessionId);
         when(session.getGameId()).thenReturn(gameId);
         when(session.getStatus()).thenReturn(GameSessionStatus.SCHEDULED);
-        when(session.getPriceAmount()).thenReturn(new BigDecimal("300.00"));
-        when(session.getPriceCurrency()).thenReturn("RUB");
-        when(sessions.findAllByGameIdOrderByStartsAtAsc(gameId)).thenReturn(List.of(session));
-        when(bills.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId)).thenReturn(List.of());
+        when(sessions.findByIdAndGameId(sessionId, gameId)).thenReturn(Optional.of(session));
+        when(bills.findBySessionIdAndPlayerId(sessionId, playerId)).thenReturn(Optional.of(bill));
         when(bills.save(any(SessionBill.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(participants.findBySessionIdAndPlayerId(sessionId, playerId))
-                .thenReturn(Optional.of(SessionRegistration.of(sessionId, playerId)));
+        when(participants.findBySessionIdAndPlayerId(sessionId, playerId)).thenReturn(Optional.of(participation));
+        when(participants.findAllBySessionIdOrderByCreatedAtAsc(sessionId)).thenReturn(List.of(participation));
         when(entries.findAllByGameIdAndPlayerIdOrderByCreatedAtAsc(gameId, playerId))
                 .thenReturn(List.of(entry(gameId, playerId, "500.00", "TOP_UP", masterId)));
 
-        service.addEntry(masterId, gameId, playerId, topUp("500.00"));
+        service.payFromBalance(playerId, gameId, sessionId);
+
+        assertEquals(0, new BigDecimal("300.00").compareTo(bill.getSettled()));
+        verify(entries, never()).save(any(FinanceEntry.class));
+
+        service.finish(game, session, false, masterId);
 
         ArgumentCaptor<FinanceEntry> saved = ArgumentCaptor.forClass(FinanceEntry.class);
-        verify(entries, times(2)).save(saved.capture());
-        FinanceEntry reservation = saved.getAllValues().get(1);
-        assertEquals("RESERVATION", reservation.getKind());
-        assertEquals(0, new BigDecimal("-300.00").compareTo(reservation.getAmount()));
+        verify(entries).save(saved.capture());
+        assertEquals("SESSION_CHARGE", saved.getValue().getKind());
+        assertEquals(0, new BigDecimal("-300.00").compareTo(saved.getValue().getAmount()));
     }
 
     /** Платная игра, бухгалтерию которой ведёт мастер запроса. */
