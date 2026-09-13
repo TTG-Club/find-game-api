@@ -214,6 +214,32 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void moderatorReadsGameInModerationMode() throws Exception {
+        UUID moderatorId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/games/" + gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(moderatorId, "MODERATOR")))
+                .andExpect(status().isOk());
+
+        verify(service).getForModeration(moderatorId, gameId);
+    }
+
+    @Test
+    void adminReadsGameInModerationMode() throws Exception {
+        UUID adminId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/games/" + gameId)
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(adminId, "ADMIN")))
+                .andExpect(status().isOk());
+
+        verify(service).getForModeration(adminId, gameId);
+    }
+
+    @Test
     void guestCannotCreateGame() throws Exception {
         mockMvc.perform(post("/api/v1/games")
                         .contentType("application/json")

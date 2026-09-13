@@ -528,6 +528,25 @@ public class GameService {
         return isApprovedPlayer(gameId, requesterId) ? response : response.copyWithoutGameChat();
     }
 
+    /**
+     * Страница игры для модерации. Скрытие и приватность не ограничивают
+     * просмотр, но чужие код приглашения и чат собранной группы не раскрываются.
+     *
+     * @param requesterId Модератор или администратор из токена.
+     * @param gameId Игра.
+     * @return Игра с данными о модераторском скрытии.
+     */
+    @Transactional(readOnly = true)
+    public GameResponse getForModeration(UUID requesterId, UUID gameId) {
+        Game game = repository.findById(gameId)
+                .orElseThrow(() -> new GameNotFoundException(gameId));
+
+        if (game.getMasterId().equals(requesterId)) {
+            return toOwnerResponse(game);
+        }
+        return toPublicResponse(game, countTakenSeats(List.of(game)));
+    }
+
     @Transactional
     public void delete(UUID moderatorId, UUID gameId, String reason) {
         Game game = repository.findByIdForUpdate(gameId)

@@ -29,14 +29,17 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.UUID;
+import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Validated
 @RestController
 @RequestMapping("/api/v1/games")
 @Tag(name = "Games")
 public class GameController {
+
+    private static final Set<String> MODERATION_ROLES = Set.of("ADMIN", "MODERATOR");
 
     private final GameService service;
 
@@ -122,7 +125,7 @@ public class GameController {
     }
 
     @GetMapping("/{gameId}")
-    @Operation(summary = "Получить публичную игру, свою игру или приватную игру по коду приглашения")
+    @Operation(summary = "Получить доступную игру, включая скрытую для ADMIN или MODERATOR")
     public GameResponse get(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
@@ -130,7 +133,18 @@ public class GameController {
     ) {
         UUID requesterId = jwt == null ? null : UUID.fromString(jwt.getSubject());
 
+        if (canModerate(jwt)) {
+            return service.getForModeration(requesterId, gameId);
+        }
         return service.get(requesterId, gameId, inviteCode);
+    }
+
+    private static boolean canModerate(Jwt jwt) {
+        if (jwt == null) {
+            return false;
+        }
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        return roles != null && roles.stream().anyMatch(MODERATION_ROLES::contains);
     }
 
     @PutMapping("/{gameId}")
