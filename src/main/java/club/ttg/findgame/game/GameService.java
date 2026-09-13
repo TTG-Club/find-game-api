@@ -163,6 +163,9 @@ public class GameService {
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
         game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), game.getOnlinePlatform()));
+        if (request.requiresCompletePlayerProfile() != null) {
+            game.setRequiresCompletePlayerProfile(request.requiresCompletePlayerProfile());
+        }
         applyVisibilityChange(game, previousVisibility);
 
         return toOwnerResponse(repository.save(game));

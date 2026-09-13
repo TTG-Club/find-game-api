@@ -69,6 +69,24 @@ class UserProfileServiceTest {
     }
 
     @Test
+    void completePlayerProfileRequiresCommonFieldsAndPlayerDescription() {
+        UserProfile profile = UserProfile.create(UUID.randomUUID());
+
+        assertThat(profile.hasCompletePlayerProfile()).isFalse();
+
+        profile.setBirthYear(1990);
+        profile.setGender(Gender.NOT_SPECIFIED);
+        profile.setTabletopExperienceYears(0);
+        profile.getPlayerProfile().setAbout("   ");
+
+        assertThat(profile.hasCompletePlayerProfile()).isFalse();
+
+        profile.getPlayerProfile().setAbout("Люблю исследование мира");
+
+        assertThat(profile.hasCompletePlayerProfile()).isTrue();
+    }
+
+    @Test
     void rejectsBirthYearInFuture() {
         UUID userId = UUID.randomUUID();
         UpdateUserProfileRequest request = new UpdateUserProfileRequest(

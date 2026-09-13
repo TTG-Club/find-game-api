@@ -80,6 +80,12 @@ public record UpdateGameRequest(
                 defaultValue = "false"
         )
         Boolean crossplayAllowed,
+        @Schema(
+                description = "Можно ли подать заявку только с заполненным профилем игрока",
+                example = "true",
+                defaultValue = "false"
+        )
+        Boolean requiresCompletePlayerProfile,
         @NotNull
         GameDurationType durationType,
         @NotNull

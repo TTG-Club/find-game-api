@@ -249,7 +249,8 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 "Кишинёв", source.venue(),
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
-                source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
+                source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
+                source.durationType(), source.costType(),
                 source.visibility(), source.onlinePlatform());
 
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
@@ -267,7 +268,8 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), "Клуб «Кубик», Пятницкая 12",
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
-                source.startingLevel(), source.crossplayAllowed(), source.durationType(), source.costType(),
+                source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
+                source.durationType(), source.costType(),
                 source.visibility(), source.onlinePlatform());
 
         // Онлайн собирается по ссылке: адрес стола ему не нужен.
@@ -799,7 +801,8 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(),
                 playersToStart, maxPlayers, source.minAge(), source.maxAge(),
-                source.startingLevel(), source.crossplayAllowed(), source.durationType(),
+                source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
+                source.durationType(),
                 source.costType(), source.visibility(), source.onlinePlatform());
     }
 
@@ -816,6 +819,39 @@ class GameServiceTest {
                     request(3, 5, GameVisibility.PUBLIC, type, GameOnlinePlatform.VTTG));
             assertThat(response.onlinePlatform()).isNull();
         }
+    }
+
+    @Test
+    void createsGameWithCompletePlayerProfileRequirement() {
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
+        CreateGameRequest request = new CreateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                true, source.durationType(), source.costType(), source.visibility(), source.onlinePlatform());
+
+        GameResponse response = service().create(
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
+
+        assertThat(response.requiresCompletePlayerProfile()).isTrue();
+    }
+
+    @Test
+    void updateFromOldClientPreservesCompletePlayerProfileRequirement() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setRequiresCompletePlayerProfile(true);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        GameResponse response = service().update(
+                masterId, "game-master", gameId, updateRequest());
+
+        assertThat(response.requiresCompletePlayerProfile()).isTrue();
     }
 
     @Test
@@ -866,6 +902,7 @@ class GameServiceTest {
                 null,
                 1,
                 false,
+                null,
                 GameDurationType.CAMPAIGN,
                 GameCostType.FREE,
                 GameVisibility.PUBLIC, platform);
@@ -887,7 +924,8 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
-                source.crossplayAllowed(), source.durationType(), source.costType(), source.visibility(), source.onlinePlatform());
+                source.crossplayAllowed(), source.requiresCompletePlayerProfile(), source.durationType(),
+                source.costType(), source.visibility(), source.onlinePlatform());
     }
 
     private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility) {
@@ -917,6 +955,7 @@ class GameServiceTest {
                 99,
                 1,
                 true,
+                false,
                 GameDurationType.CAMPAIGN,
                 GameCostType.PAID,
                 visibility, platform

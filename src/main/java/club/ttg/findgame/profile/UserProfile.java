@@ -78,6 +78,16 @@ public class UserProfile {
         updatedAt = Instant.now();
     }
 
+    /** Полностью ли заполнены общая часть и анкета игрока. */
+    public boolean hasCompletePlayerProfile() {
+        return birthYear != null
+                && gender != null
+                && tabletopExperienceYears != null
+                && playerProfile != null
+                && playerProfile.getAbout() != null
+                && !playerProfile.getAbout().isBlank();
+    }
+
     @PrePersist
     void prePersist() {
         Instant now = Instant.now();

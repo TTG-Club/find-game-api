@@ -7,6 +7,8 @@ import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
+import club.ttg.findgame.profile.UserProfile;
+import club.ttg.findgame.profile.UserProfileRepository;
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 import club.ttg.findgame.registration.api.GameRegistrationResponse;
 import club.ttg.findgame.registration.api.GameParticipantResponse;
@@ -40,6 +42,7 @@ public class GameRegistrationService {
     private final GameSessionRepository sessionRepository;
     private final GameRegistrationRepository registrationRepository;
     private final SessionRegistrationRepository participantRepository;
+    private final UserProfileRepository userProfileRepository;
     private final NotificationService notificationService;
     private final GameFinanceService financeService;
 
@@ -48,6 +51,7 @@ public class GameRegistrationService {
             GameSessionRepository sessionRepository,
             GameRegistrationRepository registrationRepository,
             SessionRegistrationRepository participantRepository,
+            UserProfileRepository userProfileRepository,
             NotificationService notificationService,
             GameFinanceService financeService
     ) {
@@ -55,6 +59,7 @@ public class GameRegistrationService {
         this.sessionRepository = sessionRepository;
         this.registrationRepository = registrationRepository;
         this.participantRepository = participantRepository;
+        this.userProfileRepository = userProfileRepository;
         this.notificationService = notificationService;
         this.financeService = financeService;
     }
@@ -85,6 +90,13 @@ public class GameRegistrationService {
         }
         if (registrationRepository.findByGameIdAndPlayerId(gameId, playerId).isPresent()) {
             throw new InvalidSessionRegistrationException("Игрок уже подал заявку в эту игру");
+        }
+        if (game.isRequiresCompletePlayerProfile()
+                && userProfileRepository.findById(playerId)
+                .filter(UserProfile::hasCompletePlayerProfile)
+                .isEmpty()) {
+            throw new InvalidSessionRegistrationException(
+                    "Чтобы подать заявку, заполните игровой профиль игрока");
         }
 
         GameRegistration registration = new GameRegistration();

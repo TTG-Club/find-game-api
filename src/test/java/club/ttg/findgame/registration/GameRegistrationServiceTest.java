@@ -5,6 +5,8 @@ import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
+import club.ttg.findgame.profile.UserProfile;
+import club.ttg.findgame.profile.UserProfileRepository;
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
 import club.ttg.findgame.registration.api.GameRegistrationResponse;
 import club.ttg.findgame.registration.api.ReviewGameRegistrationRequest;
@@ -51,6 +53,9 @@ class GameRegistrationServiceTest {
     private SessionRegistrationRepository participantRepository;
 
     @Mock
+    private UserProfileRepository userProfileRepository;
+
+    @Mock
     private NotificationService notificationService;
 
     @Test
@@ -94,6 +99,50 @@ class GameRegistrationServiceTest {
                 .isInstanceOf(InvalidSessionRegistrationException.class);
 
         verify(registrationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void applicationToRestrictedGameRequiresCompletePlayerProfile() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(game.isRequiresCompletePlayerProfile()).thenReturn(true);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.empty());
+        when(userProfileRepository.findById(playerId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().register(
+                playerId, gameId, null, new CreateGameRegistrationRequest(null, null)))
+                .isInstanceOf(InvalidSessionRegistrationException.class)
+                .hasMessage("Чтобы подать заявку, заполните игровой профиль игрока");
+
+        verify(registrationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void completePlayerProfileAllowsApplicationToRestrictedGame() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        UserProfile profile = mock(UserProfile.class);
+        when(game.isRequiresCompletePlayerProfile()).thenReturn(true);
+        when(profile.hasCompletePlayerProfile()).thenReturn(true);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.empty());
+        when(userProfileRepository.findById(playerId)).thenReturn(Optional.of(profile));
+        when(registrationRepository.saveAndFlush(any(GameRegistration.class)))
+                .thenAnswer(invocation -> {
+                    GameRegistration saved = invocation.getArgument(0);
+                    saved.prePersist();
+                    return saved;
+                });
+
+        GameRegistrationResponse response = service().register(
+                playerId, gameId, null, new CreateGameRegistrationRequest(null, "Лаэзель"));
+
+        assertThat(response.status()).isEqualTo(RegistrationStatus.PENDING);
     }
 
     @Test
@@ -410,7 +459,8 @@ class GameRegistrationServiceTest {
     private GameRegistrationService service() {
         return new GameRegistrationService(
                 gameRepository, sessionRepository, registrationRepository,
-                participantRepository, notificationService, mock(club.ttg.findgame.finance.GameFinanceService.class));
+                participantRepository, userProfileRepository, notificationService,
+                mock(club.ttg.findgame.finance.GameFinanceService.class));
     }
 
     /** Публичная игра с заданным мастером. */

@@ -109,6 +109,9 @@ public class Game {
     @Column(name = "crossplay_allowed", nullable = false)
     private boolean crossplayAllowed;
 
+    @Column(name = "requires_complete_player_profile", nullable = false)
+    private boolean requiresCompletePlayerProfile;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private GameStatus status;

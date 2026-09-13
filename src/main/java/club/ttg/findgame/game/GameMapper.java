@@ -25,6 +25,10 @@ public interface GameMapper {
             target = "crossplayAllowed",
             expression = "java(Boolean.TRUE.equals(request.crossplayAllowed()))"
     )
+    @Mapping(
+            target = "requiresCompletePlayerProfile",
+            expression = "java(Boolean.TRUE.equals(request.requiresCompletePlayerProfile()))"
+    )
     Game toEntity(CreateGameRequest request);
 
     /**
@@ -42,6 +46,7 @@ public interface GameMapper {
     @Mapping(target = "deletedAt", ignore = true)
     @Mapping(target = "deletionReason", ignore = true)
     @Mapping(target = "onlinePlatform", ignore = true)
+    @Mapping(target = "requiresCompletePlayerProfile", ignore = true)
     @Mapping(
             target = "crossplayAllowed",
             expression = "java(Boolean.TRUE.equals(request.crossplayAllowed()))"

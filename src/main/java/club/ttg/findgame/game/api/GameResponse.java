@@ -54,6 +54,7 @@ public record GameResponse(
         Integer maxAge,
         int startingLevel,
         boolean crossplayAllowed,
+        boolean requiresCompletePlayerProfile,
         GameStatus status,
         /**
          * Мастер закрыл набор досрочно. Полный стол закрыт и без этой отметки:
@@ -83,7 +84,8 @@ public record GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
-                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
+                status, recruitmentClosed, durationType,
                 costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 nextSession, myRegistrationStatus, onlinePlatform);
     }
@@ -97,7 +99,8 @@ public record GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, null,
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
-                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
+                status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 nextSession, myRegistrationStatus, onlinePlatform);
     }
@@ -108,7 +111,8 @@ public record GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
                 genre, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
-                minAge, maxAge, startingLevel, crossplayAllowed, status, recruitmentClosed, durationType,
+                minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
+                status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 session, registrationStatus, onlinePlatform);
     }
