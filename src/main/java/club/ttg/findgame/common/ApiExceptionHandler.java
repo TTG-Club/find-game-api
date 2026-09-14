@@ -14,6 +14,8 @@ import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
 import club.ttg.findgame.game.GameCannotBeRaisedException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
+import club.ttg.findgame.game.GameSystemAlreadyExistsException;
+import club.ttg.findgame.game.GameSystemNotFoundException;
 import club.ttg.findgame.follow.FollowNotAllowedException;
 import club.ttg.findgame.review.ReviewNotAllowedException;
 import club.ttg.findgame.review.ReviewWindowClosedException;
@@ -62,6 +64,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(InvalidGameDetailsException.class)
     ProblemDetail handleInvalidDetails(InvalidGameDetailsException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Некорректные параметры игры", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameSystemNotFoundException.class)
+    ProblemDetail handleGameSystemNotFound(GameSystemNotFoundException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Игровая система не найдена", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameSystemAlreadyExistsException.class)
+    ProblemDetail handleGameSystemAlreadyExists(GameSystemAlreadyExistsException exception) {
+        return problem(HttpStatus.CONFLICT, "Игровая система уже существует", exception.getMessage());
     }
 
     @ExceptionHandler(ActiveGameLimitExceededException.class)

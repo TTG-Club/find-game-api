@@ -3,7 +3,6 @@ package club.ttg.findgame.game.api;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameStatus;
-import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.InvalidGameDetailsException;
 
@@ -12,8 +11,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public record GameSearchFilter(
-        Set<GameSystem> systems,
-        Set<GameSystem> excludedSystems,
+        Set<String> systems,
+        Set<String> excludedSystems,
         Set<GameType> types,
         Set<GameType> excludedTypes,
         Set<GameDurationType> durationTypes,

@@ -70,8 +70,8 @@ public class GameController {
     @Operation(summary = "Найти публичные игры")
     public Page<GameResponse> findPublic(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(required = false) Set<GameSystem> system,
-            @RequestParam(required = false) Set<GameSystem> excludeSystem,
+            @RequestParam(required = false) Set<String> system,
+            @RequestParam(required = false) Set<String> excludeSystem,
             @RequestParam(required = false) Set<GameType> type,
             @RequestParam(required = false) Set<GameType> excludeType,
             @RequestParam(required = false) Set<GameDurationType> durationType,

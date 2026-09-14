@@ -3,7 +3,6 @@ package club.ttg.findgame.game.api;
 import club.ttg.findgame.common.SiteUrl;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
-import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameOnlinePlatform;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
@@ -29,8 +28,9 @@ public record UpdateGameRequest(
         @NotBlank @Size(max = 150)
         @Schema(example = "Проклятие Страда")
         String title,
-        @NotNull
-        GameSystem system,
+        @NotBlank @Size(max = 30)
+        @Schema(example = "DND_2024")
+        String system,
         @Pattern(regexp = SiteUrl.PATTERN, message = SiteUrl.MESSAGE)
         @Size(max = 2048)
         @Schema(example = "/s3/games/curse-of-strahd.webp")
@@ -47,9 +47,9 @@ public record UpdateGameRequest(
         @Schema(example = "https://t.me/+strahd-party")
         String gameChatUrl,
 
-        @Size(max = 100)
-        @Schema(example = "Готическое фэнтези")
-        String genre,
+        @Size(max = 10)
+        @Schema(example = "[\"Готическое фэнтези\", \"Хоррор\"]")
+        Set<@NotBlank @Size(max = 100) String> genres,
         @NotBlank @Size(max = 20_000)
         String description,
         @NotBlank @Size(max = 10_000)

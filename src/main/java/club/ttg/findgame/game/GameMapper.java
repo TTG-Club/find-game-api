@@ -8,6 +8,8 @@ import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.ReportingPolicy;
 
+import java.util.Set;
+
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface GameMapper {
 
@@ -21,6 +23,7 @@ public interface GameMapper {
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
     @Mapping(target = "deletionReason", ignore = true)
+    @Mapping(target = "genres", ignore = true)
     @Mapping(
             target = "crossplayAllowed",
             expression = "java(Boolean.TRUE.equals(request.crossplayAllowed()))"
@@ -47,6 +50,7 @@ public interface GameMapper {
     @Mapping(target = "deletionReason", ignore = true)
     @Mapping(target = "onlinePlatform", ignore = true)
     @Mapping(target = "requiresCompletePlayerProfile", ignore = true)
+    @Mapping(target = "genres", ignore = true)
     @Mapping(
             target = "crossplayAllowed",
             expression = "java(Boolean.TRUE.equals(request.crossplayAllowed()))"
@@ -59,5 +63,11 @@ public interface GameMapper {
      */
     @Mapping(target = "nextSession", ignore = true)
     @Mapping(target = "myRegistrationStatus", ignore = true)
+    @Mapping(target = "genres", source = "game.genres")
     GameResponse toResponse(Game game, int takenSeats, int approvedSeats);
+
+    default Set<String> mapGenres(Set<Genre> genres) {
+        return genres.stream().map(Genre::getName)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+    }
 }

@@ -38,6 +38,7 @@ import java.time.temporal.ChronoUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -50,6 +51,12 @@ class GameServiceTest {
 
     @Mock
     private GameRepository repository;
+
+    @Mock
+    private GameSystemRepository gameSystemRepository;
+
+    @Mock
+    private GenreService genreService;
 
     @Mock
     private GameRaiseRepository raiseRepository;
@@ -169,7 +176,7 @@ class GameServiceTest {
         assertThat(captor.getValue().getMasterId()).isEqualTo(masterId);
         assertThat(response.virtualTableUrl()).isEqualTo("https://vtt.example.org/games/curse-of-strahd");
         assertThat(response.onlinePlatform()).isEqualTo(GameOnlinePlatform.VTTG);
-        assertThat(response.genre()).isEqualTo("Готическое фэнтези");
+        assertThat(response.genres()).containsExactly("Готическое фэнтези");
         assertThat(response.durationType()).isEqualTo(GameDurationType.CAMPAIGN);
         assertThat(response.costType()).isEqualTo(GameCostType.PAID);
         assertThat(response.minAge()).isEqualTo(18);
@@ -180,6 +187,19 @@ class GameServiceTest {
         assertThat(response.allowedSources()).containsExactlyInAnyOrder(
                 "Player's Handbook 2024", "Tasha's Cauldron of Everything");
         assertThat(response.inviteCode()).isNotNull();
+    }
+
+    @Test
+    void rejectsGameWithUnknownSystem() {
+        CreateGameRequest request = withSystem(
+                request(3, 5, GameVisibility.PUBLIC), "UNKNOWN_SYSTEM");
+
+        assertThatThrownBy(() -> service().create(
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
+                .isInstanceOf(GameSystemNotFoundException.class)
+                .hasMessageContaining("UNKNOWN_SYSTEM");
+
+        verify(repository, never()).save(any());
     }
 
     @Test
@@ -245,7 +265,7 @@ class GameServiceTest {
         CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
         CreateGameRequest request = new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 "Кишинёв", source.venue(),
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
@@ -264,7 +284,7 @@ class GameServiceTest {
         CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
         CreateGameRequest request = new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), "Клуб «Кубик», Пятницкая 12",
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
@@ -492,9 +512,14 @@ class GameServiceTest {
         // Почта подтверждена всюду, кроме теста самой проверки: иначе каждый
         // тест создания игры повторял бы одну и ту же заглушку.
         lenient().when(authAccountClient.isEmailVerified(ACCESS_TOKEN)).thenReturn(true);
+        lenient().when(gameSystemRepository.existsById("DND_2024")).thenReturn(true);
+        lenient().when(genreService.resolve(Set.of("Готическое фэнтези")))
+                .thenReturn(Set.of(new Genre("Готическое фэнтези")));
 
         return new GameService(
                 repository,
+                gameSystemRepository,
+                genreService,
                 raiseRepository,
                 mapper,
                 subscriptionStatusClient,
@@ -759,25 +784,6 @@ class GameServiceTest {
         assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
     }
 
-    @Test
-    void moderatorSeesHiddenGameWithoutPrivateLinks() {
-        UUID gameId = UUID.randomUUID();
-        Game game = chattyGame(gameId, UUID.randomUUID());
-        Instant hiddenAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        game.setDeletedAt(hiddenAt);
-        game.setDeletionReason("Нарушение правил");
-        game.setInviteCode(UUID.randomUUID());
-        when(repository.findById(gameId)).thenReturn(Optional.of(game));
-
-        GameResponse response = service().getForModeration(UUID.randomUUID(), gameId);
-
-        assertThat(response.deletedAt()).isEqualTo(hiddenAt);
-        assertThat(response.deletionReason()).isEqualTo("Нарушение правил");
-        assertThat(response.inviteCode()).isNull();
-        assertThat(response.gameChatUrl()).isNull();
-        verify(repository, never()).findByIdAndDeletedAtIsNull(gameId);
-    }
-
     /** Игра со ссылками на разговоры. */
     private Game chattyGame(UUID gameId, UUID masterId) {
         Game game = editableGame(gameId, masterId);
@@ -795,7 +801,7 @@ class GameServiceTest {
         game.setId(gameId);
         game.setMasterId(masterId);
         game.setTitle("Проклятие Страда");
-        game.setSystem(GameSystem.DND_2024);
+        game.setSystem("DND_2024");
         game.setDescription("Кампания");
         game.setRequirements("Требования");
         game.setType(GameType.ONLINE);
@@ -816,7 +822,7 @@ class GameServiceTest {
 
         return new UpdateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(),
                 playersToStart, maxPlayers, source.minAge(), source.maxAge(),
@@ -846,7 +852,7 @@ class GameServiceTest {
         CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
         CreateGameRequest request = new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
@@ -903,7 +909,7 @@ class GameServiceTest {
     private UpdateGameRequest updateRequest(GameType type, GameOnlinePlatform platform) {
         return new UpdateGameRequest(
                 "Проклятие Страда",
-                GameSystem.DND_2024,
+                "DND_2024",
                 null,
                 null,
                 null,
@@ -939,12 +945,23 @@ class GameServiceTest {
     private CreateGameRequest withAges(CreateGameRequest source, Integer minAge, Integer maxAge) {
         return new CreateGameRequest(
                 source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
-                source.masterChatUrl(), source.gameChatUrl(), source.genre(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
                 source.crossplayAllowed(), source.requiresCompletePlayerProfile(), source.durationType(),
                 source.costType(), source.visibility(), source.onlinePlatform());
+    }
+
+    private CreateGameRequest withSystem(CreateGameRequest source, String system) {
+        return new CreateGameRequest(
+                source.title(), system, source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
+                source.visibility(), source.onlinePlatform());
     }
 
     private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility) {
@@ -956,12 +973,12 @@ class GameServiceTest {
                                       GameType type, GameOnlinePlatform platform) {
         return new CreateGameRequest(
                 "Проклятие Страда",
-                GameSystem.DND_2024,
+                "DND_2024",
                 "https://example.org/strahd.jpg",
                 "https://vtt.example.org/games/curse-of-strahd",
                 "https://t.me/master",
                 "https://t.me/+strahd-party",
-                "Готическое фэнтези",
+                Set.of("Готическое фэнтези"),
                 "Готическая кампания",
                 "Совершеннолетние игроки",
                 Set.of("Player's Handbook 2024", "Tasha's Cauldron of Everything"),

@@ -8,6 +8,8 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -37,9 +39,8 @@ public class Game {
     @Column(nullable = false, length = 150)
     private String title;
 
-    @Enumerated(EnumType.STRING)
     @Column(name = "game_system", nullable = false, length = 30)
-    private GameSystem system;
+    private String system;
 
     @Column(name = "image_url", length = 2048)
     private String imageUrl;
@@ -66,8 +67,13 @@ public class Game {
     @Column(name = "recruitment_closed", nullable = false)
     private boolean recruitmentClosed;
 
-    @Column(length = 100)
-    private String genre;
+    @ManyToMany
+    @JoinTable(
+            name = "game_genres",
+            joinColumns = @JoinColumn(name = "game_id"),
+            inverseJoinColumns = @JoinColumn(name = "genre_id")
+    )
+    private Set<Genre> genres = new LinkedHashSet<>();
 
     @Column(nullable = false, columnDefinition = "text")
     private String description;
@@ -170,5 +176,9 @@ public class Game {
 
     public void setAllowedSources(Set<String> allowedSources) {
         this.allowedSources = allowedSources == null ? new LinkedHashSet<>() : new LinkedHashSet<>(allowedSources);
+    }
+
+    public void setGenres(Set<Genre> genres) {
+        this.genres = genres == null ? new LinkedHashSet<>() : new LinkedHashSet<>(genres);
     }
 }

@@ -59,6 +59,8 @@ public class GameService {
     private static final Duration RAISE_WINDOW = Duration.ofDays(1);
 
     private final GameRepository repository;
+    private final GameSystemRepository gameSystemRepository;
+    private final GenreService genreService;
     private final GameRaiseRepository raiseRepository;
     private final GameMapper mapper;
     private final SubscriptionStatusClient subscriptionStatusClient;
@@ -77,6 +79,8 @@ public class GameService {
 
     public GameService(
             GameRepository repository,
+            GameSystemRepository gameSystemRepository,
+            GenreService genreService,
             GameRaiseRepository raiseRepository,
             GameMapper mapper,
             SubscriptionStatusClient subscriptionStatusClient,
@@ -88,6 +92,8 @@ public class GameService {
             NotificationService notificationService
     ) {
         this.repository = repository;
+        this.gameSystemRepository = gameSystemRepository;
+        this.genreService = genreService;
         this.raiseRepository = raiseRepository;
         this.mapper = mapper;
         this.subscriptionStatusClient = subscriptionStatusClient;
@@ -106,10 +112,12 @@ public class GameService {
             throw new InvalidPlayerCountException();
         }
         validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
+        requireGameSystem(request.system());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
+        game.setGenres(genreService.resolve(request.genres()));
         game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), null));
         game.setMasterId(masterId);
         game.setStatus(GameStatus.OPEN);
@@ -156,12 +164,14 @@ public class GameService {
             throw new InvalidPlayerCountException();
         }
         validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
+        requireGameSystem(request.system());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         validateCostTypeChange(game, request.costType());
         validatePlayerCountChange(gameId, request.playersToStart(), request.maxPlayers());
 
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
+        game.setGenres(genreService.resolve(request.genres()));
         game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), game.getOnlinePlatform()));
         if (request.requiresCompletePlayerProfile() != null) {
             game.setRequiresCompletePlayerProfile(request.requiresCompletePlayerProfile());
@@ -169,6 +179,12 @@ public class GameService {
         applyVisibilityChange(game, previousVisibility);
 
         return toOwnerResponse(repository.save(game));
+    }
+
+    private void requireGameSystem(String code) {
+        if (!gameSystemRepository.existsById(code)) {
+            throw new GameSystemNotFoundException(code);
+        }
     }
 
     /**

@@ -41,7 +41,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(GameController.class)
+@WebMvcTest({GameController.class, GameSystemController.class})
 @Import({SecurityConfiguration.class, ApiExceptionHandler.class})
 @TestPropertySource(properties = "auth-service.jwt-secret=" + GameControllerSecurityTest.SECRET)
 class GameControllerSecurityTest {
@@ -53,6 +53,9 @@ class GameControllerSecurityTest {
 
     @MockitoBean
     private GameService service;
+
+    @MockitoBean
+    private GameSystemService gameSystemService;
 
     @Test
     void guestCanSearchPublicGames() throws Exception {
@@ -77,7 +80,7 @@ class GameControllerSecurityTest {
         ArgumentCaptor<GameSearchFilter> captor = ArgumentCaptor.forClass(GameSearchFilter.class);
         verify(service).findPublic(captor.capture(), eq(0), eq(20), eq(null));
         GameSearchFilter filter = captor.getValue();
-        assertThat(filter.systems()).containsExactlyInAnyOrder(GameSystem.DND_2024, GameSystem.DND_2014);
+        assertThat(filter.systems()).containsExactlyInAnyOrder("DND_2024", "DND_2014");
         assertThat(filter.excludedTypes()).containsExactly(GameType.TEXT);
         assertThat(filter.costTypes()).containsExactly(GameCostType.FREE);
         assertThat(filter.minAge()).isEqualTo(18);
@@ -160,6 +163,42 @@ class GameControllerSecurityTest {
                 .andExpect(status().isOk());
 
         verify(service).findOwn(userId, Set.of(), 0, 20, GamePersonalRole.APPLICATIONS, false);
+    }
+
+    @Test
+    void guestCanReadGameSystems() throws Exception {
+        mockMvc.perform(get("/api/v1/game-systems"))
+                .andExpect(status().isOk());
+
+        verify(gameSystemService).findAll();
+    }
+
+    @Test
+    void regularUserCannotAddGameSystem() throws Exception {
+        mockMvc.perform(post("/api/v1/moderation/game-systems")
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content("""
+                                {"code":"PATHFINDER_2E","name":"Pathfinder 2e"}
+                                """))
+                .andExpect(status().isForbidden());
+
+        verify(gameSystemService, never()).create(any());
+    }
+
+    @Test
+    void moderatorCanAddGameSystem() throws Exception {
+        mockMvc.perform(post("/api/v1/moderation/game-systems")
+                        .header(HttpHeaders.AUTHORIZATION,
+                                "Bearer " + issueToken(UUID.randomUUID(), "MODERATOR"))
+                        .contentType("application/json")
+                        .content("""
+                                {"code":"PATHFINDER_2E","name":"Pathfinder 2e"}
+                                """))
+                .andExpect(status().isCreated());
+
+        verify(gameSystemService).create(any());
     }
 
     @Test

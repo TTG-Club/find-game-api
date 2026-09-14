@@ -103,3 +103,7 @@ databaseChangeLog:
       file: db/changelog/changes/051-add-notification-message.sql
   - include:
       file: db/changelog/changes/052-add-complete-player-profile-requirement.sql
+  - include:
+      file: db/changelog/changes/053-create-game-systems.sql
+  - include:
+      file: db/changelog/changes/054-create-genres.sql

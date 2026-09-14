@@ -3,7 +3,6 @@ package club.ttg.findgame.game.api;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameStatus;
-import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameOnlinePlatform;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
@@ -18,7 +17,7 @@ public record GameResponse(
         UUID id,
         UUID masterId,
         String title,
-        GameSystem system,
+        String system,
         String imageUrl,
         String virtualTableUrl,
         /** Разговор с мастером: открыт всем, кто смотрит объявление. */
@@ -28,7 +27,7 @@ public record GameResponse(
          * заявку ещё не в группе, и разговор группы его не касается.
          */
         @JsonInclude(JsonInclude.Include.NON_NULL) String gameChatUrl,
-        String genre,
+        Set<String> genres,
         String description,
         String requirements,
         Set<String> allowedSources,
@@ -82,7 +81,7 @@ public record GameResponse(
     public GameResponse copyWithoutInviteCode() {
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
-                genre, description, requirements,
+                genres, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
@@ -97,7 +96,7 @@ public record GameResponse(
     public GameResponse copyWithoutGameChat() {
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, null,
-                genre, description, requirements,
+                genres, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
@@ -109,7 +108,7 @@ public record GameResponse(
     public GameResponse withOverview(NextGameSessionResponse session, RegistrationStatus registrationStatus) {
         return new GameResponse(
                 id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, gameChatUrl,
-                genre, description, requirements,
+                genres, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,

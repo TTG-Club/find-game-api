@@ -2,7 +2,6 @@ package club.ttg.findgame.common;
 
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
-import club.ttg.findgame.game.GameSystem;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.registration.api.CreateGameRegistrationRequest;
@@ -99,7 +98,7 @@ class SiteUrlValidationTest {
 
     private static CreateGameRequest create(String imageUrl) {
         return new CreateGameRequest(
-                "Проклятие Страда", GameSystem.DND_2024, imageUrl, null, null, null, null,
+                "Проклятие Страда", "DND_2024", imageUrl, null, null, null, null,
                 "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true, false,
                 GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null);
@@ -107,7 +106,7 @@ class SiteUrlValidationTest {
 
     private static UpdateGameRequest update(String imageUrl) {
         return new UpdateGameRequest(
-                "Проклятие Страда", GameSystem.DND_2024, imageUrl, null, null, null, null,
+                "Проклятие Страда", "DND_2024", imageUrl, null, null, null, null,
                 "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true, false,
                 GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null);
