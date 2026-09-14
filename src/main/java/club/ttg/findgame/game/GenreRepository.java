@@ -13,6 +13,8 @@ public interface GenreRepository extends JpaRepository<Genre, UUID> {
 
     List<Genre> findAllByNormalizedNameIn(Collection<String> normalizedNames);
 
+    List<Genre> findAllByOrderByNameAsc();
+
     @Query("""
             select genre from Genre genre
             where genre.normalizedName like concat(:prefix, '%')

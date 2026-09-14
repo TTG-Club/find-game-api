@@ -188,6 +188,11 @@ curl -X POST http://localhost:8080/api/v1/games \
   }'
 ```
 
+Система берётся из справочника `GET /api/v1/game-systems`. Если нужной там нет, игра получает
+`"system": "HOMEBREW"` и обязательное название в `customSystem`. Жанры принимаются только из
+списка `GET /api/v1/genres` (без `q` он отдаётся целиком); жанр не из списка передаётся строкой
+в `customGenre`.
+
 Для приватной игры ответ создания содержит `inviteCode`. Получить её можно по
 `GET /api/v1/games/{id}?inviteCode={inviteCode}`. В выдачу поиска попадают только публичные игры;
 код приглашения никогда не возвращается из `GET`-методов.
@@ -351,11 +356,12 @@ GET /api/v1/games?system=DND_2024&type=ONLINE&page=0&size=20
 GET /api/v1/games?excludeType=TEXT&minAge=18&maxAge=30
 ```
 
-Поддерживаются фильтры `system`, `type`, `durationType`, `costType`, `status`, `city`,
+Поддерживаются фильтры `system`, `genre`, `type`, `durationType`, `costType`, `status`, `city`,
 `crossplayAllowed`, `minAge`, `maxAge`, `maxFreeSeats` и `maxSeatsToStart`.
 Для категориальных фильтров доступны исключающие
-варианты `excludeSystem`, `excludeType`, `excludeDurationType`, `excludeCostType`,
-`excludeStatus` и `excludeCity`. Несколько значений передаются через запятую или повтором
+варианты `excludeSystem`, `excludeGenre`, `excludeType`, `excludeDurationType`, `excludeCostType`,
+`excludeStatus` и `excludeCity`. Жанр ищется по названию без учёта регистра, а значение
+`genre=HOMEBREW` отбирает игры со своим жанром. Несколько значений передаются через запятую или повтором
 параметра, например `type=ONLINE,OFFLINE` или `type=ONLINE&type=OFFLINE`. Внутри одного
 включающего параметра значения объединяются через `OR`, а затем результат пересекается с
 остальными условиями и исключениями.

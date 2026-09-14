@@ -113,11 +113,14 @@ public class GameService {
         }
         validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
         requireGameSystem(request.system());
+        String customSystem = resolveCustomSystem(request.system(), request.customSystem());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         enforceActiveGameLimit(masterId, username);
 
         Game game = mapper.toEntity(request);
+        game.setCustomSystem(customSystem);
         game.setGenres(genreService.resolve(request.genres()));
+        game.setCustomGenre(stripToNull(request.customGenre()));
         game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), null));
         game.setMasterId(masterId);
         game.setStatus(GameStatus.OPEN);
@@ -165,13 +168,16 @@ public class GameService {
         }
         validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
         requireGameSystem(request.system());
+        String customSystem = resolveCustomSystem(request.system(), request.customSystem());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         validateCostTypeChange(game, request.costType());
         validatePlayerCountChange(gameId, request.playersToStart(), request.maxPlayers());
 
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
+        game.setCustomSystem(customSystem);
         game.setGenres(genreService.resolve(request.genres()));
+        game.setCustomGenre(stripToNull(request.customGenre()));
         game.setOnlinePlatform(resolveOnlinePlatform(request.type(), request.onlinePlatform(), game.getOnlinePlatform()));
         if (request.requiresCompletePlayerProfile() != null) {
             game.setRequiresCompletePlayerProfile(request.requiresCompletePlayerProfile());
@@ -185,6 +191,27 @@ public class GameService {
         if (!gameSystemRepository.existsById(code)) {
             throw new GameSystemNotFoundException(code);
         }
+    }
+
+    /**
+     * Название своей системы. У своей системы оно обязательно — без него
+     * игроку не понять, во что играют; у системы из списка название уже есть,
+     * и присланное отбрасывается.
+     */
+    private static String resolveCustomSystem(String system, String customSystem) {
+        if (!GameSystem.HOMEBREW.equals(system)) {
+            return null;
+        }
+
+        String name = stripToNull(customSystem);
+        if (name == null) {
+            throw new InvalidGameDetailsException("Укажите название своей системы");
+        }
+        return name;
+    }
+
+    private static String stripToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /**

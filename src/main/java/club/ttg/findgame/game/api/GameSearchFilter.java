@@ -4,6 +4,7 @@ import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.game.GameType;
+import club.ttg.findgame.game.Genre;
 import club.ttg.findgame.game.InvalidGameDetailsException;
 
 import java.util.Locale;
@@ -13,6 +14,13 @@ import java.util.stream.Collectors;
 public record GameSearchFilter(
         Set<String> systems,
         Set<String> excludedSystems,
+        /**
+         * Жанры из списка по названию, без учёта регистра. {@link Genre#HOMEBREW}
+         * отбирает игры со своим жанром; внутри набора условия объединяются
+         * через «или», как и у остальных наборов.
+         */
+        Set<String> genres,
+        Set<String> excludedGenres,
         Set<GameType> types,
         Set<GameType> excludedTypes,
         Set<GameDurationType> durationTypes,
@@ -50,13 +58,15 @@ public record GameSearchFilter(
 
     public static GameSearchFilter empty() {
         return new GameSearchFilter(
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null);
     }
 
     public GameSearchFilter {
         systems = immutable(systems);
         excludedSystems = immutable(excludedSystems);
+        genres = normalizeGenres(genres);
+        excludedGenres = normalizeGenres(excludedGenres);
         types = immutable(types);
         excludedTypes = immutable(excludedTypes);
         durationTypes = immutable(durationTypes);
@@ -85,6 +95,18 @@ public record GameSearchFilter(
                 .map(String::trim)
                 .filter(city -> !city.isEmpty())
                 .map(city -> city.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** Названия приводятся к ключу справочника; значение «свой жанр» остаётся как есть. */
+    private static Set<String> normalizeGenres(Set<String> genres) {
+        if (genres == null) {
+            return Set.of();
+        }
+        return genres.stream()
+                .map(String::strip)
+                .filter(genre -> !genre.isEmpty())
+                .map(genre -> Genre.HOMEBREW.equals(genre) ? genre : Genre.normalize(genre))
                 .collect(Collectors.toUnmodifiableSet());
     }
 }

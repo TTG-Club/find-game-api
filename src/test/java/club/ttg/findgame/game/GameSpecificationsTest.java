@@ -60,7 +60,7 @@ class GameSpecificationsTest {
                 .thenReturn(freeSeat);
 
         GameSearchFilter filter = new GameSearchFilter(
-                null, null, null, Set.of(GameType.TEXT),
+                null, null, null, null, null, Set.of(GameType.TEXT),
                 null, null, null, null, null, null,
                 null, null, null, 18, 30, null, null, null);
         Specification<Game> specification = GameSpecifications.publicGames(filter, null);
@@ -106,7 +106,7 @@ class GameSpecificationsTest {
                 .thenReturn(seatsToStartAtMost);
 
         GameSearchFilter filter = new GameSearchFilter(
-                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, 1, 2, null);
         Specification<Game> specification = GameSpecifications.publicGames(filter, null);
 

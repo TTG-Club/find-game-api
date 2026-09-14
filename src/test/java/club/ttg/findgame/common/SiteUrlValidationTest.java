@@ -101,7 +101,7 @@ class SiteUrlValidationTest {
                 "Проклятие Страда", "DND_2024", imageUrl, null, null, null, null,
                 "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true, false,
-                GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null);
+                GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null, null, null);
     }
 
     private static UpdateGameRequest update(String imageUrl) {
@@ -109,6 +109,6 @@ class SiteUrlValidationTest {
                 "Проклятие Страда", "DND_2024", imageUrl, null, null, null, null,
                 "Описание", "Требования", null, GameType.ONLINE, null, null,
                 3, 5, null, null, 1, true, false,
-                GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null);
+                GameDurationType.CAMPAIGN, GameCostType.FREE, GameVisibility.PUBLIC, null, null, null);
     }
 }

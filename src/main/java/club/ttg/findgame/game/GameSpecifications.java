@@ -6,6 +6,7 @@ import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.registration.RegistrationStatus;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 final class GameSpecifications {
 
@@ -41,6 +43,8 @@ final class GameSpecifications {
 
             addValues(predicates, root, criteriaBuilder, "system", filter.systems(), false);
             addValues(predicates, root, criteriaBuilder, "system", filter.excludedSystems(), true);
+            addGenres(predicates, root, query, criteriaBuilder, filter.genres(), false);
+            addGenres(predicates, root, query, criteriaBuilder, filter.excludedGenres(), true);
             addValues(predicates, root, criteriaBuilder, "type", filter.types(), false);
             addValues(predicates, root, criteriaBuilder, "type", filter.excludedTypes(), true);
             addValues(predicates, root, criteriaBuilder, "durationType", filter.durationTypes(), false);
@@ -182,6 +186,62 @@ final class GameSpecifications {
                                 registration.get("status"), RegistrationStatus.REJECTED)));
 
         return taken;
+    }
+
+    /**
+     * Отбор по жанрам: игра подходит, если у неё есть хотя бы один из жанров
+     * списка или, когда в наборе есть {@link Genre#HOMEBREW}, свой жанр.
+     *
+     * Жанры проверяются подзапросом {@code exists}, а не соединением с корнем:
+     * соединение размножило бы строки игры с несколькими жанрами и сбило бы
+     * подсчёт страниц.
+     *
+     * @param values Названия жанров, уже приведённые к ключу справочника.
+     */
+    private static void addGenres(
+            List<Predicate> predicates,
+            Root<Game> root,
+            CriteriaQuery<?> query,
+            CriteriaBuilder criteriaBuilder,
+            Set<String> values,
+            boolean excluded
+    ) {
+        if (values.isEmpty()) {
+            return;
+        }
+
+        Set<String> names = values.stream()
+                .filter(value -> !Genre.HOMEBREW.equals(value))
+                .collect(Collectors.toSet());
+        List<Predicate> matches = new ArrayList<>();
+        if (!names.isEmpty()) {
+            matches.add(hasAnyGenre(root, query, criteriaBuilder, names));
+        }
+        if (values.contains(Genre.HOMEBREW)) {
+            matches.add(criteriaBuilder.isNotNull(root.get("customGenre")));
+        }
+
+        Predicate matchesAny = criteriaBuilder.or(matches.toArray(Predicate[]::new));
+        predicates.add(excluded ? criteriaBuilder.not(matchesAny) : matchesAny);
+    }
+
+    /** Подзапрос: есть ли у игры жанр из набора. */
+    private static Predicate hasAnyGenre(
+            Root<Game> root,
+            CriteriaQuery<?> query,
+            CriteriaBuilder criteriaBuilder,
+            Set<String> normalizedNames
+    ) {
+        Subquery<UUID> tagged = query.subquery(UUID.class);
+        Root<Game> game = tagged.from(Game.class);
+        Join<Game, Genre> genre = game.join("genres");
+
+        tagged.select(game.get("id"))
+                .where(criteriaBuilder.and(
+                        criteriaBuilder.equal(game.get("id"), root.get("id")),
+                        genre.get("normalizedName").in(normalizedNames)));
+
+        return criteriaBuilder.exists(tagged);
     }
 
     private static void addValues(

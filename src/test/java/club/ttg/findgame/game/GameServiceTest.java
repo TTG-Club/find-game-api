@@ -216,6 +216,47 @@ class GameServiceTest {
     }
 
     @Test
+    void createsGameWithOwnSystemAndOwnGenre() {
+        when(gameSystemRepository.existsById(GameSystem.HOMEBREW)).thenReturn(true);
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        CreateGameRequest request = withOwnSystemAndGenre(
+                request(3, 5, GameVisibility.PUBLIC),
+                GameSystem.HOMEBREW, "  Мир Тьмы по домашним правилам ", " Хоррор-комедия ");
+
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
+
+        assertThat(response.system()).isEqualTo(GameSystem.HOMEBREW);
+        assertThat(response.customSystem()).isEqualTo("Мир Тьмы по домашним правилам");
+        assertThat(response.customGenre()).isEqualTo("Хоррор-комедия");
+    }
+
+    @Test
+    void rejectsOwnSystemWithoutName() {
+        when(gameSystemRepository.existsById(GameSystem.HOMEBREW)).thenReturn(true);
+        CreateGameRequest request = withOwnSystemAndGenre(
+                request(3, 5, GameVisibility.PUBLIC), GameSystem.HOMEBREW, "   ", null);
+
+        // Без названия игроку не понять, во что играют.
+        assertThatThrownBy(() -> service().create(
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
+                .isInstanceOf(InvalidGameDetailsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void dropsOwnSystemNameForListedSystemAndBlankOwnGenre() {
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        CreateGameRequest request = withOwnSystemAndGenre(
+                request(3, 5, GameVisibility.PUBLIC), "DND_2024", "Хоумбрю", "   ");
+
+        GameResponse response = service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
+
+        assertThat(response.customSystem()).isNull();
+        assertThat(response.customGenre()).isNull();
+    }
+
+    @Test
     void doesNotCreateGameForUnverifiedEmail() {
         GameService service = service();
         when(authAccountClient.isEmailVerified(ACCESS_TOKEN)).thenReturn(false);
@@ -284,7 +325,7 @@ class GameServiceTest {
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
 
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
                 .isInstanceOf(InvalidGameDetailsException.class);
@@ -303,7 +344,7 @@ class GameServiceTest {
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
 
         // Онлайн собирается по ссылке: адрес стола ему не нужен.
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
@@ -841,7 +882,8 @@ class GameServiceTest {
                 playersToStart, maxPlayers, source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(),
-                source.costType(), source.visibility(), source.onlinePlatform());
+                source.costType(), source.visibility(), source.onlinePlatform(),
+                source.customSystem(), source.customGenre());
     }
 
     @Test
@@ -869,7 +911,8 @@ class GameServiceTest {
                 source.description(), source.requirements(), source.allowedSources(), source.type(),
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
-                true, source.durationType(), source.costType(), source.visibility(), source.onlinePlatform());
+                true, source.durationType(), source.costType(), source.visibility(), source.onlinePlatform(),
+                source.customSystem(), source.customGenre());
 
         GameResponse response = service().create(
                 UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
@@ -943,7 +986,7 @@ class GameServiceTest {
                 null,
                 GameDurationType.CAMPAIGN,
                 GameCostType.FREE,
-                GameVisibility.PUBLIC, platform);
+                GameVisibility.PUBLIC, platform, null, null);
     }
 
     private Game raisableGame(UUID masterId, Instant listPositionAt) {
@@ -963,7 +1006,8 @@ class GameServiceTest {
                 source.city(), source.venue(),
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
                 source.crossplayAllowed(), source.requiresCompletePlayerProfile(), source.durationType(),
-                source.costType(), source.visibility(), source.onlinePlatform());
+                source.costType(), source.visibility(), source.onlinePlatform(),
+                source.customSystem(), source.customGenre());
     }
 
     private CreateGameRequest withSystem(CreateGameRequest source, String system) {
@@ -974,7 +1018,19 @@ class GameServiceTest {
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
                 source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
+    }
+
+    private CreateGameRequest withOwnSystemAndGenre(
+            CreateGameRequest source, String system, String customSystem, String customGenre) {
+        return new CreateGameRequest(
+                source.title(), system, source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
+                source.visibility(), source.onlinePlatform(), customSystem, customGenre);
     }
 
     private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility) {
@@ -1007,7 +1063,7 @@ class GameServiceTest {
                 false,
                 GameDurationType.CAMPAIGN,
                 GameCostType.PAID,
-                visibility, platform
+                visibility, platform, null, null
         );
     }
 }

@@ -93,6 +93,12 @@ public record UpdateGameRequest(
         @NotNull
         GameVisibility visibility,
         @Schema(description = "Платформа только для онлайн-игр; без значения сохраняется текущая")
-        GameOnlinePlatform onlinePlatform
+        GameOnlinePlatform onlinePlatform,
+        @Size(max = 120)
+        @Schema(description = "Название своей системы; обязательно при system = HOMEBREW", example = "Мир Тьмы по домашним правилам")
+        String customSystem,
+        @Size(max = 100)
+        @Schema(description = "Жанр, которого нет в списке жанров", example = "Хоррор-комедия")
+        String customGenre
 ) {
 }

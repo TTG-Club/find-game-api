@@ -71,6 +71,8 @@ class GameControllerSecurityTest {
 
         mockMvc.perform(get("/api/v1/games")
                         .param("system", "DND_2024,DND_2014")
+                        .param("genre", "Хоррор,HOMEBREW")
+                        .param("excludeGenre", " Вестерн ")
                         .param("excludeType", "TEXT")
                         .param("costType", "FREE")
                         .param("minAge", "18")
@@ -81,6 +83,8 @@ class GameControllerSecurityTest {
         verify(service).findPublic(captor.capture(), eq(0), eq(20), eq(null));
         GameSearchFilter filter = captor.getValue();
         assertThat(filter.systems()).containsExactlyInAnyOrder("DND_2024", "DND_2014");
+        assertThat(filter.genres()).containsExactlyInAnyOrder("хоррор", Genre.HOMEBREW);
+        assertThat(filter.excludedGenres()).containsExactly("вестерн");
         assertThat(filter.excludedTypes()).containsExactly(GameType.TEXT);
         assertThat(filter.costTypes()).containsExactly(GameCostType.FREE);
         assertThat(filter.minAge()).isEqualTo(18);

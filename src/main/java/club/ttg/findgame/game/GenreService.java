@@ -22,14 +22,25 @@ public class GenreService {
         this.repository = repository;
     }
 
+    /**
+     * Без запроса отдаёт весь список: он короткий, и форма игры показывает его
+     * целиком. С запросом ищет по началу названия.
+     */
     @Transactional(readOnly = true)
     public List<GenreResponse> search(String query, int limit) {
-        return repository.findByNamePrefix(Genre.normalize(query == null ? "" : query), Limit.of(limit)).stream()
+        List<Genre> genres = query == null || query.isBlank()
+                ? repository.findAllByOrderByNameAsc()
+                : repository.findByNamePrefix(Genre.normalize(query), Limit.of(limit));
+
+        return genres.stream()
                 .map(genre -> new GenreResponse(genre.getName()))
                 .toList();
     }
 
-    /** Возвращает существующие жанры и добавляет отсутствующие пользовательские значения. */
+    /**
+     * Находит жанры игры в списке. Жанр не из списка отвергается: свой жанр
+     * игра хранит отдельным полем, а справочник не пополняется.
+     */
     @Transactional
     public Set<Genre> resolve(Set<String> names) {
         if (names == null || names.isEmpty()) {
@@ -47,8 +58,13 @@ public class GenreService {
         Map<String, Genre> resolved = repository.findAllByNormalizedNameIn(requested.keySet()).stream()
                 .collect(Collectors.toMap(Genre::getNormalizedName, Function.identity()));
 
-        requested.forEach((normalizedName, displayName) ->
-                resolved.computeIfAbsent(normalizedName, ignored -> repository.save(new Genre(displayName))));
+        List<String> unknown = requested.entrySet().stream()
+                .filter(entry -> !resolved.containsKey(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+        if (!unknown.isEmpty()) {
+            throw new GenreNotFoundException(unknown);
+        }
 
         return requested.keySet().stream()
                 .map(resolved::get)

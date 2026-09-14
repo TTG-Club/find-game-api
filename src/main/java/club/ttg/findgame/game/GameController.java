@@ -72,6 +72,8 @@ public class GameController {
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) Set<String> system,
             @RequestParam(required = false) Set<String> excludeSystem,
+            @RequestParam(required = false) Set<String> genre,
+            @RequestParam(required = false) Set<String> excludeGenre,
             @RequestParam(required = false) Set<GameType> type,
             @RequestParam(required = false) Set<GameType> excludeType,
             @RequestParam(required = false) Set<GameDurationType> durationType,
@@ -92,7 +94,7 @@ public class GameController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         GameSearchFilter filter = new GameSearchFilter(
-                system, excludeSystem, type, excludeType,
+                system, excludeSystem, genre, excludeGenre, type, excludeType,
                 durationType, excludeDurationType, costType, excludeCostType,
                 status, excludeStatus, city, excludeCity, crossplayAllowed, minAge, maxAge,
                 maxFreeSeats, maxSeatsToStart, favorite);

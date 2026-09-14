@@ -37,6 +37,18 @@ class GameSystemServiceTest {
     }
 
     @Test
+    void putsOwnSystemLast() {
+        when(repository.findAllByOrderByNameAsc()).thenReturn(List.of(
+                new GameSystem("DND_2024", "D&D 5 (2024)"),
+                new GameSystem(GameSystem.HOMEBREW, "Своя система"),
+                new GameSystem("FATE_CORE", "Fate Core")));
+
+        assertThat(new GameSystemService(repository).findAll())
+                .extracting("code")
+                .containsExactly("DND_2024", "FATE_CORE", GameSystem.HOMEBREW);
+    }
+
+    @Test
     void createsSystemWithoutApplicationCodeChange() {
         when(repository.save(any(GameSystem.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

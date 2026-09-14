@@ -16,6 +16,7 @@ import club.ttg.findgame.game.GameCannotBeRaisedException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
 import club.ttg.findgame.game.GameSystemAlreadyExistsException;
 import club.ttg.findgame.game.GameSystemNotFoundException;
+import club.ttg.findgame.game.GenreNotFoundException;
 import club.ttg.findgame.follow.FollowNotAllowedException;
 import club.ttg.findgame.review.ReviewNotAllowedException;
 import club.ttg.findgame.review.ReviewWindowClosedException;
@@ -69,6 +70,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GameSystemNotFoundException.class)
     ProblemDetail handleGameSystemNotFound(GameSystemNotFoundException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Игровая система не найдена", exception.getMessage());
+    }
+
+    @ExceptionHandler(GenreNotFoundException.class)
+    ProblemDetail handleGenreNotFound(GenreNotFoundException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Жанр не найден", exception.getMessage());
     }
 
     @ExceptionHandler(GameSystemAlreadyExistsException.class)

@@ -42,6 +42,10 @@ public class Game {
     @Column(name = "game_system", nullable = false, length = 30)
     private String system;
 
+    /** Название своей системы. Есть только у {@link GameSystem#HOMEBREW}. */
+    @Column(name = "custom_system", length = 120)
+    private String customSystem;
+
     @Column(name = "image_url", length = 2048)
     private String imageUrl;
 
@@ -74,6 +78,10 @@ public class Game {
             inverseJoinColumns = @JoinColumn(name = "genre_id")
     )
     private Set<Genre> genres = new LinkedHashSet<>();
+
+    /** Жанр, которого нет в списке: мастер пишет его сам. */
+    @Column(name = "custom_genre", length = 100)
+    private String customGenre;
 
     @Column(nullable = false, columnDefinition = "text")
     private String description;

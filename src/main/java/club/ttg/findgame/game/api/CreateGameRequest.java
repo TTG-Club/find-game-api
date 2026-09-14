@@ -106,6 +106,14 @@ public record CreateGameRequest(
         GameVisibility visibility,
 
         @Schema(description = "Платформа только для онлайн-игр; при создании по умолчанию VTTG")
-        GameOnlinePlatform onlinePlatform
+        GameOnlinePlatform onlinePlatform,
+
+        @Size(max = 120)
+        @Schema(description = "Название своей системы; обязательно при system = HOMEBREW", example = "Мир Тьмы по домашним правилам")
+        String customSystem,
+
+        @Size(max = 100)
+        @Schema(description = "Жанр, которого нет в списке жанров", example = "Хоррор-комедия")
+        String customGenre
 ) {
 }

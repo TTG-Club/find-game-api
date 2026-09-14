@@ -15,6 +15,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class GameSystem {
 
+    /** Своя система: её название игра хранит сама, в {@code customSystem}. */
+    public static final String HOMEBREW = "HOMEBREW";
+
     @Id
     @Column(length = 30)
     private String code;

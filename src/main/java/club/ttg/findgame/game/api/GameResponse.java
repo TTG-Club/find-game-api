@@ -71,7 +71,11 @@ public record GameResponse(
         @JsonInclude(JsonInclude.Include.NON_NULL) String deletionReason,
         NextGameSessionResponse nextSession,
         @JsonInclude(JsonInclude.Include.NON_NULL) RegistrationStatus myRegistrationStatus,
-        GameOnlinePlatform onlinePlatform
+        GameOnlinePlatform onlinePlatform,
+        /** Название своей системы. Есть только при {@code system = HOMEBREW}. */
+        String customSystem,
+        /** Жанр, которого нет в списке, — мастер написал его сам. */
+        String customGenre
 ) {
 
     /**
@@ -86,7 +90,7 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre);
     }
 
     /**
@@ -101,7 +105,7 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -113,6 +117,6 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                session, registrationStatus, onlinePlatform);
+                session, registrationStatus, onlinePlatform, customSystem, customGenre);
     }
 }

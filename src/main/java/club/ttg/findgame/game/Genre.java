@@ -12,12 +12,21 @@ import lombok.NoArgsConstructor;
 import java.util.Locale;
 import java.util.UUID;
 
-/** Пользовательский жанр из общего справочника. */
+/**
+ * Жанр из готового списка. Список ведётся миграциями: мастер его не пополняет,
+ * а жанр, которого в нём нет, пишет в игре отдельным полем.
+ */
 @Entity
 @Table(name = "genres")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Genre {
+
+    /**
+     * Значение отбора «свой жанр». В справочнике такой строки нет: свой жанр
+     * игра хранит сама, в {@code customGenre}.
+     */
+    public static final String HOMEBREW = "HOMEBREW";
 
     @Id
     private UUID id;

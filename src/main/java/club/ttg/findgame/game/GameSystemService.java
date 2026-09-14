@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 @Service
 public class GameSystemService {
@@ -16,11 +17,23 @@ public class GameSystemService {
         this.repository = repository;
     }
 
+    /**
+     * Системы по названию, своя система — последней: это выход для тех, кто не
+     * нашёл свою в списке, и в начале списка она мешала бы поиску.
+     */
     @Transactional(readOnly = true)
     public List<GameSystemResponse> findAll() {
-        return repository.findAllByOrderByNameAsc().stream()
+        List<GameSystem> systems = repository.findAllByOrderByNameAsc();
+
+        return Stream.concat(
+                        systems.stream().filter(system -> !isHomebrew(system)),
+                        systems.stream().filter(GameSystemService::isHomebrew))
                 .map(system -> new GameSystemResponse(system.getCode(), system.getName()))
                 .toList();
+    }
+
+    private static boolean isHomebrew(GameSystem system) {
+        return GameSystem.HOMEBREW.equals(system.getCode());
     }
 
     @Transactional
