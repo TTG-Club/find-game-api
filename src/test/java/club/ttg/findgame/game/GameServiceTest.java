@@ -137,7 +137,20 @@ class GameServiceTest {
         verify(repository).findPersonal(eq(userId), eq(Set.of(GameStatus.OPEN)), eq("PLAYER"), any(), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
-        verify(repository, never()).findAllOwnOrJoinedByStatus(any(), any(), any());
+        verify(repository, never()).findAllPersonalByStatus(any(), any(), any());
+    }
+
+    @Test
+    void allRoleUsesCombinedPersonalQueryWithoutCancelledGames() {
+        UUID userId = UUID.randomUUID();
+        when(repository.findAllPersonalByStatus(eq(userId), any(), any()))
+                .thenReturn(Page.empty());
+
+        service().findOwn(userId, Set.of(), 0, 20, GamePersonalRole.ALL);
+
+        verify(repository).findAllPersonalByStatus(eq(userId), eq(Set.of(GameStatus.DRAFT, GameStatus.OPEN,
+                GameStatus.CLOSED)), any());
+        verify(repository, never()).findPersonal(any(), any(), any(), any(), any());
     }
 
     @Test

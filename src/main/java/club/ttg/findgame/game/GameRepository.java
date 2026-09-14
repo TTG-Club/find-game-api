@@ -101,8 +101,14 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
     Page<Game> findAllOwnOrJoined(@Param("userId") UUID userId, Pageable pageable);
 
     /**
-     * То же, но с отбором по статусу: отменённые игры показываются только
-     * тому, кто спросил их прямо.
+     * Вкладка «Все» личного кабинета: объединение личных срезов — свои игры
+     * мастера, игры с заявкой или принятым участием и отмеченные в избранное.
+     * С отбором по статусу: отменённые игры показываются только тому, кто
+     * спросил их прямо.
+     *
+     * Избранное подчиняется тому же правилу, что во вкладке избранного: чужая
+     * приватная игра без заявки в список не попадает, иначе карточка вела бы
+     * на 404. Мастер и участник видят приватную игру по первым двум условиям.
      */
     @Query("""
             SELECT g FROM Game g
@@ -112,9 +118,13 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
                    OR EXISTS (SELECT 1 FROM GameRegistration r
                               WHERE r.gameId = g.id
                                 AND r.playerId = :userId
-                                AND r.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED))
+                                AND r.status <> club.ttg.findgame.registration.RegistrationStatus.REJECTED)
+                   OR (g.visibility = club.ttg.findgame.game.GameVisibility.PUBLIC
+                       AND EXISTS (SELECT 1 FROM FavoriteGame f
+                                   WHERE f.gameId = g.id
+                                     AND f.ownerId = :userId)))
             """)
-    Page<Game> findAllOwnOrJoinedByStatus(
+    Page<Game> findAllPersonalByStatus(
             @Param("userId") UUID userId,
             @Param("statuses") Collection<GameStatus> statuses,
             Pageable pageable);

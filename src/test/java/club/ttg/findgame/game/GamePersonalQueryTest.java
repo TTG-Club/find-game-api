@@ -15,6 +15,7 @@ class GamePersonalQueryTest {
     void personalRepositoryQueriesCompile() {
         Configuration configuration = new Configuration()
                 .addAnnotatedClass(Game.class)
+                .addAnnotatedClass(Genre.class)
                 .addAnnotatedClass(GameRegistration.class)
                 .addAnnotatedClass(GameSession.class)
                 .addAnnotatedClass(FavoriteGame.class)

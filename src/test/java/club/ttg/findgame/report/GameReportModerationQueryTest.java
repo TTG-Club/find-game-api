@@ -1,6 +1,7 @@
 package club.ttg.findgame.report;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.game.Genre;
 import org.hibernate.cfg.Configuration;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
@@ -14,6 +15,7 @@ class GameReportModerationQueryTest {
     void moderationQueueQueryCompiles() {
         Configuration configuration = new Configuration()
                 .addAnnotatedClass(Game.class)
+                .addAnnotatedClass(Genre.class)
                 .addAnnotatedClass(GameReport.class)
                 .setProperty("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect")
                 .setProperty("hibernate.boot.allow_jdbc_metadata_access", "false")

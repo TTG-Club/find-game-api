@@ -16,6 +16,7 @@ class GameRepositoryQueryTest {
     void repositoryQueriesCompile() {
         Configuration configuration = new Configuration()
                 .addAnnotatedClass(Game.class)
+                .addAnnotatedClass(Genre.class)
                 .addAnnotatedClass(FavoriteGame.class)
                 .addAnnotatedClass(GameRegistration.class)
                 .addAnnotatedClass(GameSession.class)

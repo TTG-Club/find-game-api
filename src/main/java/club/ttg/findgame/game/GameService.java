@@ -483,7 +483,7 @@ public class GameService {
                     : Page.empty(pageable);
         } else {
             games = role == GamePersonalRole.ALL
-                    ? repository.findAllOwnOrJoinedByStatus(userId, wanted, pageable)
+                    ? repository.findAllPersonalByStatus(userId, wanted, pageable)
                     : repository.findPersonal(userId, wanted, role.name(), Instant.now(), pageable);
         }
         Map<UUID, Seats> seats = countTakenSeats(games.getContent());
