@@ -52,6 +52,8 @@ public class SecurityConfiguration {
 
     private static final String PUBLIC_MASTER_REVIEWS = "/api/v1/profiles/masters/*/reviews";
 
+    private static final String PUBLIC_PLAYER_PROFILE = "/api/v1/profiles/players/*";
+
     private static final String[] INTERNAL_PATHS = {"/api/v1/internal", "/api/v1/internal/**"};
 
     private static final int MIN_SECRET_LENGTH_BYTES = 32;
@@ -82,6 +84,11 @@ public class SecurityConfiguration {
                         // открыт и гостю, а имя мастера в нём стоит всегда.
                         .requestMatchers(HttpMethod.GET, PUBLIC_MASTER_PROFILE, PUBLIC_MASTER_REVIEWS)
                         .permitAll()
+                        // Профиль игрока открыт так же: его читают из состава
+                        // игры, а состав виден и тем, кто ещё не вошёл.
+                        // Отметка игрока в закладки идёт PUT и DELETE по тому
+                        // же пути — она под этим правилом не открывается.
+                        .requestMatchers(HttpMethod.GET, PUBLIC_PLAYER_PROFILE).permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->

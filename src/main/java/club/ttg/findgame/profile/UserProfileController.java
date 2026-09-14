@@ -1,6 +1,7 @@
 package club.ttg.findgame.profile;
 
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
+import club.ttg.findgame.profile.api.PlayerPublicProfileResponse;
 import club.ttg.findgame.review.SessionReviewService;
 import club.ttg.findgame.review.api.ReputationResponse;
 import club.ttg.findgame.review.api.SessionReviewResponse;
@@ -31,15 +32,18 @@ public class UserProfileController {
 
     private final UserProfileService service;
     private final MasterProfileService masterService;
+    private final PlayerProfileService playerService;
     private final SessionReviewService reviewService;
 
     public UserProfileController(
             UserProfileService service,
             MasterProfileService masterService,
+            PlayerProfileService playerService,
             SessionReviewService reviewService
     ) {
         this.service = service;
         this.masterService = masterService;
+        this.playerService = playerService;
         this.reviewService = reviewService;
     }
 
@@ -61,6 +65,12 @@ public class UserProfileController {
     @Operation(summary = "Получить отзывы игроков о мастере")
     public List<SessionReviewResponse> getMasterReviews(@PathVariable UUID userId) {
         return reviewService.findMasterReviews(userId);
+    }
+
+    @GetMapping("/players/{userId}")
+    @Operation(summary = "Получить публичный профиль игрока")
+    public PlayerPublicProfileResponse getPlayerProfile(@PathVariable UUID userId) {
+        return playerService.get(userId);
     }
 
     @GetMapping("/me/reputation")

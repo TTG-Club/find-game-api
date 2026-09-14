@@ -46,6 +46,9 @@ class UserProfileControllerSecurityTest {
     private MasterProfileService masterService;
 
     @MockitoBean
+    private PlayerProfileService playerService;
+
+    @MockitoBean
     private SessionReviewService reviewService;
 
     @Test
@@ -68,6 +71,25 @@ class UserProfileControllerSecurityTest {
                 .andExpect(status().isOk());
 
         verify(reviewService).findMasterReviews(masterId);
+    }
+
+    @Test
+    void guestReadsPlayerProfile() throws Exception {
+        UUID playerId = UUID.randomUUID();
+
+        // Состав игры виден и гостю, а из него открывают профиль игрока.
+        mockMvc.perform(get("/api/v1/profiles/players/" + playerId))
+                .andExpect(status().isOk());
+
+        verify(playerService).get(playerId);
+    }
+
+    @Test
+    void guestCannotBookmarkPlayer() throws Exception {
+        // Открыт только GET: отметка в закладки идёт тем же путём и остаётся
+        // за входом.
+        mockMvc.perform(put("/api/v1/profiles/players/" + UUID.randomUUID() + "/bookmark"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package club.ttg.findgame.registration;
 
+import club.ttg.findgame.session.GameSessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -20,6 +21,25 @@ public interface SessionRegistrationRepository extends JpaRepository<SessionRegi
     List<SessionRegistration> findAllBySessionIdIn(Collection<UUID> sessionIds);
 
     long countBySessionId(UUID sessionId);
+
+    /**
+     * На скольких состоявшихся встречах игрок был в составе. Счётчик для его
+     * профиля: отдельно сыгранные встречи никто не ведёт, и разойтись с
+     * правдой такому счёту негде.
+     *
+     * @param playerId Игрок.
+     * @param status Статус состоявшейся встречи.
+     */
+    @Query("""
+            select count(participation) from SessionRegistration participation
+            where participation.playerId = :playerId
+              and participation.sessionId in (
+                  select session.id from GameSession session
+                  where session.status = :status)
+            """)
+    long countCompletedByPlayer(
+            @Param("playerId") UUID playerId,
+            @Param("status") GameSessionStatus status);
 
     /**
      * Убирает игрока из перечисленных сессий. Мастер исключает его из игры
