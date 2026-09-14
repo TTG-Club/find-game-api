@@ -41,7 +41,7 @@ server:
 
 rate-limit:
   enabled: ${RATE_LIMIT_ENABLED:true}
-  requests: ${RATE_LIMIT_REQUESTS:75}
+  requests: ${RATE_LIMIT_REQUESTS:300}
   interval: ${RATE_LIMIT_INTERVAL:1m}
   max-clients: ${RATE_LIMIT_MAX_CLIENTS:100000}
 

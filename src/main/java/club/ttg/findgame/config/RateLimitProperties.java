@@ -20,7 +20,7 @@ public class RateLimitProperties {
     private boolean enabled = true;
 
     @Min(1)
-    private int requests = 75;
+    private int requests = 300;
 
     @NotNull
     private Duration interval = Duration.ofMinutes(1);
