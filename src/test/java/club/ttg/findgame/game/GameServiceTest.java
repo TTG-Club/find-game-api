@@ -102,6 +102,7 @@ class GameServiceTest {
         Game game = editableGame(UUID.randomUUID(), UUID.randomUUID());
         game.setInviteCode(UUID.randomUUID());
         game.setGameChatUrl("https://example.org/private-chat");
+        game.setVirtualTableUrl("https://example.org/private-table");
         game.setOnlinePlatform(GameOnlinePlatform.FOUNDRY_VTT);
         GameSession nearest = mock(GameSession.class);
         when(nearest.getGameId()).thenReturn(game.getId());
@@ -119,6 +120,8 @@ class GameServiceTest {
         assertThat(response.nextSession().id()).isEqualTo(nearest.getId());
         assertThat(response.inviteCode()).isNull();
         assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.virtualTableUrl()).isNull();
+        assertThat(response.hasVirtualTable()).isTrue();
         assertThat(response.myRegistrationStatus()).isNull();
         assertThat(response.onlinePlatform()).isEqualTo(GameOnlinePlatform.FOUNDRY_VTT);
         verify(sessionRepository).findUpcoming(eq(List.of(game.getId())), eq(GameSessionStatus.SCHEDULED), any(Instant.class));
@@ -764,7 +767,7 @@ class GameServiceTest {
     }
 
     @Test
-    void masterSeesBothChatLinks() {
+    void masterSeesAllLinks() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = chattyGame(gameId, masterId);
@@ -774,6 +777,7 @@ class GameServiceTest {
 
         assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
         assertThat(response.gameChatUrl()).isEqualTo("https://t.me/+strahd-party");
+        assertThat(response.virtualTableUrl()).isEqualTo("https://vtt.example.org/strahd");
     }
 
     @Test
@@ -792,11 +796,12 @@ class GameServiceTest {
         assertThat(response.deletionReason()).isEqualTo("Нарушение правил");
         assertThat(response.inviteCode()).isNull();
         assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.virtualTableUrl()).isNull();
         verify(repository, never()).findByIdAndDeletedAtIsNull(gameId);
     }
 
     @Test
-    void approvedPlayerSeesGameChatLink() {
+    void approvedPlayerSeesMemberLinks() {
         UUID playerId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = chattyGame(gameId, UUID.randomUUID());
@@ -804,12 +809,14 @@ class GameServiceTest {
         when(registrationRepository.existsByGameIdAndPlayerIdAndStatus(
                 gameId, playerId, RegistrationStatus.APPROVED)).thenReturn(true);
 
-        assertThat(service().get(playerId, gameId, null).gameChatUrl())
-                .isEqualTo("https://t.me/+strahd-party");
+        GameResponse response = service().get(playerId, gameId, null);
+
+        assertThat(response.gameChatUrl()).isEqualTo("https://t.me/+strahd-party");
+        assertThat(response.virtualTableUrl()).isEqualTo("https://vtt.example.org/strahd");
     }
 
     @Test
-    void pendingPlayerDoesNotSeeGameChatLink() {
+    void pendingPlayerDoesNotSeeMemberLinks() {
         UUID playerId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
         Game game = chattyGame(gameId, UUID.randomUUID());
@@ -819,9 +826,10 @@ class GameServiceTest {
 
         GameResponse response = service().get(playerId, gameId, null);
 
-        // Заявку ещё не разобрали: разговор группы его пока не касается, а
-        // ссылку назад не отберёшь.
+        // Заявку ещё не разобрали: стол и разговор группы его пока не касаются,
+        // а ссылку назад не отберёшь.
         assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.virtualTableUrl()).isNull();
         // Договариваться о заявке нужно всем, поэтому мастер остаётся на связи.
         assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
     }
@@ -835,15 +843,28 @@ class GameServiceTest {
         GameResponse response = service().get(null, gameId, null);
 
         assertThat(response.gameChatUrl()).isNull();
+        assertThat(response.virtualTableUrl()).isNull();
+        // Сама ссылка скрыта, но о том, что стол есть, игрок знает заранее.
+        assertThat(response.hasVirtualTable()).isTrue();
         assertThat(response.masterChatUrl()).isEqualTo("https://t.me/master");
     }
 
-    /** Игра со ссылками на разговоры. */
+    @Test
+    void gameWithoutVirtualTableSaysSo() {
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, UUID.randomUUID());
+        when(repository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+
+        assertThat(service().get(null, gameId, null).hasVirtualTable()).isFalse();
+    }
+
+    /** Игра со ссылками на разговоры и на виртуальный стол. */
     private Game chattyGame(UUID gameId, UUID masterId) {
         Game game = editableGame(gameId, masterId);
 
         game.setMasterChatUrl("https://t.me/master");
         game.setGameChatUrl("https://t.me/+strahd-party");
+        game.setVirtualTableUrl("https://vtt.example.org/strahd");
 
         return game;
     }

@@ -568,15 +568,16 @@ public class GameService {
         GameResponse response = toResponse(game, countTakenSeats(List.of(game)))
                 .copyWithoutInviteCode();
 
-        // Чат игры — разговор уже собранной группы: его видит тот, кого мастер
-        // принял. Подавшему заявку он ещё не полагается: решение по нему не
-        // принято, а ссылку назад не отберёшь.
-        return isApprovedPlayer(gameId, requesterId) ? response : response.copyWithoutGameChat();
+        // Виртуальный стол и чат игры — место уже собранной группы: их видит
+        // тот, кого мастер принял. Подавшему заявку они ещё не полагаются:
+        // решение по нему не принято, а ссылку назад не отберёшь.
+        return isApprovedPlayer(gameId, requesterId) ? response : response.copyWithoutMemberLinks();
     }
 
     /**
      * Страница игры для модерации. Скрытие и приватность не ограничивают
-     * просмотр, но чужие код приглашения и чат собранной группы не раскрываются.
+     * просмотр, но чужие код приглашения, стол и чат собранной группы не
+     * раскрываются.
      *
      * @param requesterId Модератор или администратор из токена.
      * @param gameId Игра.
@@ -687,12 +688,12 @@ public class GameService {
     }
 
     /**
-     * Ответ для списка: без кода приглашения и без чата игры. В карточке
-     * выдачи ссылке на разговор группы делать нечего, а проверять принятых на
-     * каждую строку — лишний запрос ради невидимого поля.
+     * Ответ для списка: без кода приглашения и без ссылок собранной группы.
+     * В карточке выдачи столу и разговору группы делать нечего, а проверять
+     * принятых на каждую строку — лишний запрос ради невидимых полей.
      */
     private GameResponse toPublicResponse(Game game, Map<UUID, Seats> seats) {
-        return toResponse(game, seats).copyWithoutInviteCode().copyWithoutGameChat();
+        return toResponse(game, seats).copyWithoutInviteCode().copyWithoutMemberLinks();
     }
 
     /**

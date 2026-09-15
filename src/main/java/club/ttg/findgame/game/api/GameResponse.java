@@ -19,7 +19,11 @@ public record GameResponse(
         String title,
         String system,
         String imageUrl,
-        String virtualTableUrl,
+        /**
+         * Виртуальный стол игры. Как и чат игры, приходит только мастеру и
+         * принятым игрокам: за стол садится собранная группа.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL) String virtualTableUrl,
         /** Разговор с мастером: открыт всем, кто смотрит объявление. */
         String masterChatUrl,
         /**
@@ -75,7 +79,13 @@ public record GameResponse(
         /** Название своей системы. Есть только при {@code system = HOMEBREW}. */
         String customSystem,
         /** Жанр, которого нет в списке, — мастер написал его сам. */
-        String customGenre
+        String customGenre,
+        /**
+         * Мастер указал виртуальный стол. Приходит всем, даже когда саму ссылку
+         * ответ не несёт: игрок заранее знает, что стол есть и откроется ему
+         * после принятия.
+         */
+        boolean hasVirtualTable
 ) {
 
     /**
@@ -90,22 +100,22 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
     }
 
     /**
-     * Тот же ответ без чата игры: разговор группы принадлежит принятым
-     * игрокам, а объявление читают все подряд.
+     * Тот же ответ без ссылок собранной группы — виртуального стола и чата
+     * игры: они принадлежат принятым игрокам, а объявление читают все подряд.
      */
-    public GameResponse copyWithoutGameChat() {
+    public GameResponse copyWithoutMemberLinks() {
         return new GameResponse(
-                id, masterId, title, system, imageUrl, virtualTableUrl, masterChatUrl, null,
+                id, masterId, title, system, imageUrl, null, masterChatUrl, null,
                 genres, description, requirements,
                 allowedSources, type, city, venue, playersToStart, maxPlayers, takenSeats, approvedSeats,
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -117,6 +127,6 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                session, registrationStatus, onlinePlatform, customSystem, customGenre);
+                session, registrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
     }
 }

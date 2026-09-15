@@ -68,6 +68,10 @@ public interface GameMapper {
     @Mapping(target = "nextSession", ignore = true)
     @Mapping(target = "myRegistrationStatus", ignore = true)
     @Mapping(target = "genres", source = "game.genres")
+    @Mapping(
+            target = "hasVirtualTable",
+            expression = "java(game.getVirtualTableUrl() != null && !game.getVirtualTableUrl().isBlank())"
+    )
     GameResponse toResponse(Game game, int takenSeats, int approvedSeats);
 
     default Set<String> mapGenres(Set<Genre> genres) {
