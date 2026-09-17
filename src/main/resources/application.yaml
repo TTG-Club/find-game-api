@@ -72,6 +72,7 @@ logbook:
       - gender
       - about
       - reason
+      - webhookUrl
   write:
     max-body-size: 8192
   exclude:
@@ -82,3 +83,8 @@ logbook:
 logging:
   level:
     org.zalando.logbook: TRACE
+
+# Постоянный ключ AES-256 в Base64; без ключа публикации отключены.
+discord-publications:
+  encryption-key: ${DISCORD_WEBHOOK_ENCRYPTION_KEY:}
+  site-url: ${DISCORD_PUBLICATION_SITE_URL:https://ttg.club}

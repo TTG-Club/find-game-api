@@ -17,10 +17,10 @@ class IpRateLimiterTest {
     private final AtomicLong time = new AtomicLong();
 
     @Test
-    void allowsExactly75RequestsAndRestoresQuotaAtTheWindowBoundary() {
+    void allowsExactly300RequestsAndRestoresQuotaAtTheWindowBoundary() {
         IpRateLimiter limiter = new IpRateLimiter(new RateLimitProperties(), time::get);
 
-        for (int index = 0; index < 75; index++) {
+        for (int index = 0; index < 300; index++) {
             assertThat(limiter.consume("192.0.2.1").allowed()).isTrue();
         }
         assertThat(limiter.consume("192.0.2.1"))
@@ -30,7 +30,7 @@ class IpRateLimiterTest {
                 .isEqualTo(new IpRateLimiter.Decision(false, 0, 1));
         time.set(60_000);
         assertThat(limiter.consume("192.0.2.1"))
-                .isEqualTo(new IpRateLimiter.Decision(true, 74, 60_000));
+                .isEqualTo(new IpRateLimiter.Decision(true, 299, 60_000));
     }
 
     @Test

@@ -111,3 +111,5 @@ databaseChangeLog:
       file: db/changelog/changes/055-extend-game-systems.sql
   - include:
       file: db/changelog/changes/056-curate-genres.sql
+  - include:
+      file: db/changelog/changes/057-discord-publications.sql
