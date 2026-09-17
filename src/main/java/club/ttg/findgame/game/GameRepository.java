@@ -1,5 +1,6 @@
 package club.ttg.findgame.game;
 
+import club.ttg.findgame.game.api.GameStatisticsResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,6 +18,19 @@ import java.util.UUID;
 import java.time.Instant;
 
 public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificationExecutor<Game> {
+
+    /**
+     * Оба счётчика из одного снимка базы. Публичность, оплата и закрытие набора
+     * на статистику не влияют; черновики и мягко удалённые игры не учитываются.
+     */
+    @Query("""
+            select new club.ttg.findgame.game.api.GameStatisticsResponse(
+                count(game),
+                coalesce(sum(case when game.status = club.ttg.findgame.game.GameStatus.CLOSED then 1 else 0 end), 0))
+            from Game game
+            where game.deletedAt is null and game.status <> club.ttg.findgame.game.GameStatus.DRAFT
+            """)
+    GameStatisticsResponse getStatistics();
 
     /**
      * Ролевые вкладки и краткая сводка личного кабинета с серверной пагинацией.

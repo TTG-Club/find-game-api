@@ -71,6 +71,7 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(INTERNAL_PATHS).permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/moderation/**").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.DELETE, PUBLIC_GAME_BY_ID)
                         .hasAnyRole("ADMIN", "MODERATOR")
