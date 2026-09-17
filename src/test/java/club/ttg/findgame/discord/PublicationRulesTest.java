@@ -21,7 +21,7 @@ class PublicationRulesTest {
     }
 
     @Test void webhookAllowsOnlyDiscordAndAuthenticatesCiphertext() {
-        WebhookSecrets secrets = new WebhookSecrets(Base64.getEncoder().encodeToString(new byte[32]));
+        WebhookSecrets secrets = new WebhookSecrets(Base64.getEncoder().encodeToString(new byte[32]), "0123456789abcdef0123456789abcdef");
         String valid = "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60);
         for (String invalid : List.of(valid + "?wait=false", valid + "#fragment", valid.replace("discord.com", "discord.com.attacker.test"), valid.replace("https:", "http:"), valid.replace("discord.com", "127.0.0.1"))) {
             assertThatThrownBy(() -> secrets.normalize(invalid)).isInstanceOf(RuntimeException.class);
@@ -29,7 +29,7 @@ class PublicationRulesTest {
         String encrypted = secrets.encrypt(valid);
         assertThat(secrets.encrypt(valid)).isNotEqualTo(encrypted);
         assertThatThrownBy(() -> secrets.decrypt(encrypted.substring(1))).isInstanceOf(IllegalStateException.class);
-        assertThat(new WebhookSecrets("").configured()).isFalse();
+        assertThat(new WebhookSecrets("", "0123456789abcdef0123456789abcdef").configured()).isTrue();
     }
 
     @Test void discordAcknowledgementsAndRateLimit() {

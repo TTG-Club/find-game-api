@@ -31,7 +31,7 @@ class PublicationIntegrationTest {
         @Bean JdbcTemplate jdbc(DataSource source) { return new JdbcTemplate(source); }
         @Bean PlatformTransactionManager transactions(DataSource source) { return new DataSourceTransactionManager(source); }
         @Bean ObjectMapper mapper() { return new ObjectMapper(); }
-        @Bean WebhookSecrets secrets() { return new WebhookSecrets(Base64.getEncoder().encodeToString(new byte[32])); }
+        @Bean WebhookSecrets secrets() { return new WebhookSecrets("", "0123456789abcdef0123456789abcdef"); }
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
         @Bean PublicationService service(PublicationStore store, WebhookSecrets secrets) { return new PublicationService(store, secrets); }
         @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://ttg.club"); }
@@ -112,7 +112,8 @@ class PublicationIntegrationTest {
         service.saveSettings(new SettingsInput(true, GLOBAL, 0));
         Channel channel = addChannel("Канал", null, WEBHOOK);
         String storedSecret = jdbc.queryForObject("select webhook_secret from discord_publication_channels", String.class);
-        assertThat(storedSecret).doesNotContain("discord", "aaaa");
+        assertThat(service.overview().configured()).isTrue();
+        assertThat(storedSecret).startsWith("hkdf-v1:").doesNotContain(WEBHOOK, "0123456789abcdef0123456789abcdef");
         assertThat(secrets.decrypt(storedSecret)).isEqualTo(WEBHOOK);
         assertThatThrownBy(() -> addChannel("Повтор", null, WEBHOOK.replace("/api/", "/api/v10/"))).isInstanceOf(ResponseStatusException.class);
         service.saveChannel(channel.id(), new ChannelInput("Изменён", true, "", null, 0));
