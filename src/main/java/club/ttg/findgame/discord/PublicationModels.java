@@ -22,6 +22,7 @@ public final class PublicationModels {
     public record Channel(UUID id, String name, boolean enabled, List<Slot> schedule,
                           long revision, Instant nextRunAt) {}
     public record Overview(Settings settings, List<Channel> channels, boolean configured, String timeZone) {}
+    public record TestResult(String status, String detail) {}
     public record GameEntry(UUID id, String title, String system, int takenSeats, int maxPlayers, String url) {}
     public record Run(UUID id, String channelName, Instant scheduledAt, String status,
                       int gameCount, String detail, String messageId) {}

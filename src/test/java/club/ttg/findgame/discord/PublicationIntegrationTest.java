@@ -11,6 +11,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
@@ -19,6 +20,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 import static club.ttg.findgame.discord.PublicationModels.*;
 
 /** Проверяет реальные SQL и транзакции настройки и захвата выпусков. */
@@ -35,17 +37,24 @@ class PublicationIntegrationTest {
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
         @Bean PublicationService service(PublicationStore store, WebhookSecrets secrets) { return new PublicationService(store, secrets); }
         @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://ttg.club"); }
+        @Bean DiscordWebhookClient client() { return mock(DiscordWebhookClient.class); }
+        @Bean PublicationTestSender testSender(PublicationService service, WebhookSecrets secrets, DiscordWebhookClient client) {
+            return new PublicationTestSender(service, secrets, client);
+        }
     }
     @Autowired DataSource source;
     @Autowired JdbcTemplate jdbc;
     @Autowired PublicationService service;
     @Autowired GameDigest digest;
     @Autowired WebhookSecrets secrets;
+    @Autowired DiscordWebhookClient client;
+    @Autowired PublicationTestSender testSender;
     private static final List<Slot> GLOBAL = List.of(new Slot(1, "18:00"), new Slot(4, "20:00"));
     private static final String WEBHOOK = "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60);
 
     /** Выполняет настоящую миграцию на чистой тестовой базе. */
     @BeforeEach void prepare() {
+        reset(client);
         jdbc.execute("drop all objects");
         new ResourceDatabasePopulator(new ClassPathResource("db/changelog/changes/057-discord-publications.sql")).execute(source);
         jdbc.execute("create table game_systems (code varchar primary key, name varchar)");
@@ -182,6 +191,103 @@ class PublicationIntegrationTest {
         assertThat(service.history().getFirst().status()).isEqualTo("FAILED");
         assertThat(service.claim(now.plusSeconds(59))).isNull();
         assertThat(service.claim(now.plusSeconds(61)).channelId()).isEqualTo(second.id());
+    }
+
+    /** Сохранённый выключенный канал проверяется до включения расписания; HTTP не удерживает транзакцию. */
+    @Test void testSendsSavedSecretWithoutEnablingOrChangingSchedule() {
+        Channel channel = service.saveChannel(null, new ChannelInput("Тестовый канал", false, WEBHOOK, null, 0)).channels().getFirst();
+        Overview before = service.overview();
+        when(client.send(eq(WEBHOOK), anyMap())).thenAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            Map<String, Object> payload = invocation.getArgument(1);
+            assertThat(payload).containsEntry("allowed_mentions", Map.of("parse", List.of())).doesNotContainKey("embeds");
+            assertThat(payload.get("content").toString()).contains("Тестовое сообщение").doesNotContain(WEBHOOK);
+            return new Outcome("SENT", "Опубликовано", "123456789012345678", null);
+        });
+        assertThat(testSender.send(channel.id(), channel.revision()).status()).isEqualTo("SENT");
+        assertThat(service.overview()).isEqualTo(before);
+        assertThat(service.history()).singleElement().satisfies(run -> {
+            assertThat(run.status()).isEqualTo("SENT");
+            assertThat(run.detail()).startsWith("Тест:");
+            assertThat(run.gameCount()).isZero();
+        });
+        assertThatThrownBy(() -> testSender.send(channel.id(), channel.revision())).isInstanceOf(ResponseStatusException.class);
+        verify(client, times(1)).send(eq(WEBHOOK), anyMap());
+    }
+
+    /** Пробная отправка сохраняет дату плановой публикации, а устаревшие и удалённые каналы не отправляются. */
+    @Test void testPreservesNextRunAndRejectsChangedChannels() {
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        Channel channel = addChannel("Канал", null, WEBHOOK);
+        Overview before = service.overview();
+        Delivery delivery = service.claimTest(channel.id(), channel.revision(), Instant.now());
+        assertThat(service.overview()).isEqualTo(before);
+        service.saveChannel(channel.id(), new ChannelInput("Новое имя", true, "", null, channel.revision()));
+        assertThat(service.currentTest(delivery)).isFalse();
+        assertThatThrownBy(() -> testSender.send(channel.id(), channel.revision())).isInstanceOf(ResponseStatusException.class);
+        service.deleteChannel(channel.id(), channel.revision() + 1);
+        assertThat(service.currentTest(delivery)).isFalse();
+        assertThatThrownBy(() -> testSender.send(channel.id(), channel.revision())).isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(client);
+    }
+
+    /** Ограничение Discord запрещает повтор теста и учитывается планировщиком на всех каналах. */
+    @Test void testRateLimitNeverCreatesScheduledRetry() {
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        Channel channel = addChannel("Канал", null, WEBHOOK);
+        Instant retryAt = Instant.now().plusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("RETRY", "Лимит", null, retryAt));
+        assertThat(testSender.send(channel.id(), channel.revision()).status()).isEqualTo("FAILED");
+        assertThat(service.overview().settings().pausedUntil()).isEqualTo(retryAt);
+        assertThat(service.history().getFirst().status()).isEqualTo("FAILED");
+        due(channel.id(), retryAt.plusSeconds(3600));
+        assertThat(service.claim(retryAt.plusSeconds(1))).isNull();
+        Channel other = addChannel("Другой", null, WEBHOOK.replace("aaaa", "bbbb"));
+        assertThatThrownBy(() -> testSender.send(other.id(), other.revision())).isInstanceOf(ResponseStatusException.class);
+        verify(client, times(1)).send(eq(WEBHOOK), anyMap());
+    }
+
+    /** Ошибки и неоднозначная доставка видны в журнале и не превращаются в успех. */
+    @Test void testErrorsStaySafeAndDoNotRetry() {
+        Channel first = addChannel("Первый", null, WEBHOOK);
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("FAILED", "Discord отклонил отправку (HTTP 404)", null, null));
+        assertThat(testSender.send(first.id(), first.revision()).status()).isEqualTo("FAILED");
+        String otherWebhook = WEBHOOK.replace("aaaa", "bbbb");
+        Channel second = addChannel("Второй", null, otherWebhook);
+        when(client.send(eq(otherWebhook), anyMap())).thenThrow(new IllegalStateException(otherWebhook));
+        TestResult uncertain = testSender.send(second.id(), second.revision());
+        assertThat(uncertain.status()).isEqualTo("UNKNOWN");
+        assertThat(uncertain.detail()).doesNotContain(otherWebhook);
+        assertThat(service.history()).extracting(Run::status).containsExactlyInAnyOrder("FAILED", "UNKNOWN");
+        assertThat(service.claim(Instant.now().plusSeconds(121))).isNull();
+        verify(client, times(2)).send(anyString(), anyMap());
+    }
+
+    /** Конкурирующие запросы с разных реплик создают один тест; после сбоя не повторяется доставка. */
+    @Test void concurrentTestsAndInterruptedTestRecovery() throws Exception {
+        Channel channel = addChannel("Канал", null, WEBHOOK);
+        Instant now = Instant.now();
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            CountDownLatch start = new CountDownLatch(1);
+            Callable<Boolean> claim = () -> {
+                start.await();
+                try { service.claimTest(channel.id(), channel.revision(), now); return true; }
+                catch (ResponseStatusException exception) {
+                    assertThat(exception.getStatusCode().value()).isEqualTo(429);
+                    return false;
+                }
+            };
+            Future<Boolean> first = executor.submit(claim);
+            Future<Boolean> second = executor.submit(claim);
+            start.countDown();
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS))).containsExactlyInAnyOrder(true, false);
+        }
+        assertThat(service.history()).hasSize(1);
+        service.claim(now.plusSeconds(121));
+        assertThat(service.history().getFirst().status()).isEqualTo("UNKNOWN");
+        assertThat(service.history().getFirst().detail()).startsWith("Тест:");
+        assertThat(service.claimTest(channel.id(), channel.revision(), now.plusSeconds(122))).isNotNull();
+        verifyNoInteractions(client);
     }
 
     private Channel addChannel(String name, List<Slot> schedule, String webhook) {

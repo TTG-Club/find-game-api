@@ -12,8 +12,11 @@ import static club.ttg.findgame.discord.PublicationModels.*;
 public class PublicationController {
     private final PublicationService service;
     private final GameDigest digest;
+    private final PublicationTestSender testSender;
     /** Подключает настройки и предпросмотр. */
-    public PublicationController(PublicationService service, GameDigest digest) { this.service = service; this.digest = digest; }
+    public PublicationController(PublicationService service, GameDigest digest, PublicationTestSender testSender) {
+        this.service = service; this.digest = digest; this.testSender = testSender;
+    }
     /** Читает настройки и каналы. */
     @GetMapping
     public Overview overview() { return service.overview(); }
@@ -29,6 +32,9 @@ public class PublicationController {
     /** Удаляет канал, оставляя историю. */
     @DeleteMapping("/channels/{channelId}")
     public Overview delete(@PathVariable UUID channelId, @RequestParam long revision) { return service.deleteChannel(channelId, revision); }
+    /** Проверяет сохранённый вебхук одним сообщением без изменения расписания. */
+    @PostMapping("/channels/{channelId}/test")
+    public TestResult test(@PathVariable UUID channelId, @RequestParam long revision) { return testSender.send(channelId, revision); }
     /** Показывает текущую подборку без отправки в Discord. */
     @GetMapping("/preview")
     public List<GameEntry> preview() { return digest.preview(); }

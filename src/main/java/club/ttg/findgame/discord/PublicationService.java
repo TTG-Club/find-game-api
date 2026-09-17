@@ -93,6 +93,40 @@ public class PublicationService {
         return overview();
     }
 
+    /** Ручная проверка работает до включения графика и не меняет его состояние. */
+    @Transactional
+    public Delivery claimTest(UUID channelId, long revision, Instant now) {
+        Settings settings = store.settings(true);
+        StoredChannel stored = requireChannel(store.channels(), channelId);
+        checkRevision(revision, stored.channel().revision());
+        if (!secrets.configured()) unavailable();
+        store.recover(now);
+        if ((settings.pausedUntil() != null && settings.pausedUntil().isAfter(now)) || store.testBlocked(channelId, now)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Подождите перед повторной проверкой вебхука");
+        }
+        return store.claimTest(stored, now);
+    }
+
+    /** Отменяет ещё не отправленный тест, если канал удалён или изменён. */
+    @Transactional
+    public boolean currentTest(Delivery delivery) {
+        store.settings(true);
+        return store.channels().stream().anyMatch(stored -> stored.channel().id().equals(delivery.channelId())
+                && stored.channel().revision() == delivery.channelRevision());
+    }
+
+    /** Сохраняет тест без автоматического повтора, учитывая общий лимит Discord. */
+    @Transactional
+    public TestResult finishTest(Delivery delivery, Outcome outcome, Instant now) {
+        store.settings(true);
+        if (outcome.retryAt() != null) store.pauseUntil(outcome.retryAt());
+        String status = outcome.status().equals("RETRY") ? "FAILED" : outcome.status();
+        String detail = outcome.status().equals("RETRY")
+                ? "Discord ограничил частоту отправки; попробуйте позже" : outcome.detail();
+        store.finish(delivery, new Outcome(status, "Тест: " + detail, outcome.messageId(), null), 0, now);
+        return new TestResult(status, detail);
+    }
+
     /** Захватывает один выпуск в короткой транзакции; повторный захват другим сервером невозможен. */
     @Transactional
     public Delivery claim(Instant now) {

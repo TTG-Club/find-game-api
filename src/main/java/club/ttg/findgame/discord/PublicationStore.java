@@ -84,6 +84,26 @@ public class PublicationStore {
         return new Delivery(runId, channel.id(), channel.revision(), secret, channel.nextRunAt(), 1);
     }
 
+    /** Не допускает параллельный тест и частые нажатия, включая запросы с другой реплики. */
+    boolean testBlocked(UUID channelId, Instant now) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists (select 1 from discord_publication_runs
+                where channel_id = ? and (status = 'SENDING' or started_at > ?))
+                """, Boolean.class, channelId, timestamp(now.minusSeconds(30))));
+    }
+
+    /** Записывает ручной тест до HTTP, сохраняя следующую публикацию без изменений. */
+    Delivery claimTest(StoredChannel stored, Instant now) {
+        UUID runId = UUID.randomUUID();
+        Channel channel = stored.channel();
+        jdbc.update("""
+                insert into discord_publication_runs
+                (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, detail)
+                values (?, ?, ?, ?, ?, ?, 'SENDING', 'Тест: отправляется')
+                """, runId, channel.id(), channel.name(), channel.revision(), timestamp(now), timestamp(now));
+        return new Delivery(runId, channel.id(), channel.revision(), stored.secret(), now, 1);
+    }
+
     /** Захватывает один допустимый повтор после ограничения частоты Discord. */
     Delivery retry(Instant now) {
         List<Delivery> deliveries = jdbc.query("""
@@ -104,7 +124,9 @@ public class PublicationStore {
     /** После падения процесса не повторяет запрос, который мог уже доставить сообщение. */
     void recover(Instant now) {
         jdbc.update("""
-                update discord_publication_runs set status = 'UNKNOWN', detail = 'Отправка прервана; проверьте канал', finished_at = ?
+                update discord_publication_runs set status = 'UNKNOWN', detail = case
+                when detail like 'Тест:%' then 'Тест: отправка прервана; проверьте канал'
+                else 'Отправка прервана; проверьте канал' end, finished_at = ?
                 where status = 'SENDING' and started_at < ?
                 """, timestamp(now), timestamp(now.minusSeconds(120)));
         jdbc.update("""
