@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import club.ttg.findgame.config.SecurityConfiguration;
 import io.jsonwebtoken.Jwts;
@@ -68,6 +68,35 @@ class PublicationSecurityTest {
         verify(testSender).send(channelId, 3);
     }
 
+    /** Новый адрес имеет ту же проверку ролей; контракт Telegram не раскрывает сохранённый ID. */
+    @Test void canonicalRouteProtectsTelegramSettings() throws Exception {
+        String path = "/api/v1/admin/game-publications";
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        for (String role : List.of("USER", "MODERATOR")) {
+            mvc.perform(get(path).header("Authorization", token(role))).andExpect(status().isForbidden());
+            mvc.perform(post(path + "/channels").header("Authorization", token(role))
+                    .contentType("application/json").content("{}"))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post(path + "/channels/" + UUID.randomUUID() + "/test").param("revision", "0")
+                    .header("Authorization", token(role))).andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(service, digest, testSender);
+        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "Telegram", true, null, 0, null, PublicationModels.Platform.TELEGRAM);
+        PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", true);
+        when(service.saveChannel(isNull(), any())).thenReturn(overview);
+        mvc.perform(post(path + "/channels").header("Authorization", token("ADMIN"))
+                .contentType("application/json").content("""
+                        {"name":"Telegram","enabled":true,"revision":0,"platform":"TELEGRAM","telegramChatId":"-1001234567890"}
+                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.channels[0].platform").value("TELEGRAM"))
+                .andExpect(jsonPath("$.channels[0].telegramChatId").doesNotExist())
+                .andExpect(jsonPath("$.telegramConfigured").value(true));
+        verify(service).saveChannel(isNull(), argThat(input -> input.platform() == PublicationModels.Platform.TELEGRAM
+                && input.telegramChatId().equals("-1001234567890")));
+    }
+
+    /** Создаёт подписанную сессию с указанной ролью. */
     private String token(String role) {
         return "Bearer " + Jwts.builder().subject(UUID.randomUUID().toString()).claim("roles", List.of(role))
                 .issuedAt(Date.from(Instant.now().minusSeconds(60))).expiration(Date.from(Instant.now().plusSeconds(3600)))

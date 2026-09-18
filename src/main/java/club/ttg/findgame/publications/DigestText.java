@@ -1,6 +1,6 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
-/** Очищает и сокращает названия, системы и жанры для обычного текста Discord. */
+/** Очищает и сокращает названия, системы и жанры для публикаций. */
 final class DigestText {
     private DigestText() {}
 

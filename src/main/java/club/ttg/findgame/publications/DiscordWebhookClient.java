@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Component;
@@ -9,7 +9,7 @@ import java.net.http.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Отправляет сообщение без перенаправлений и без утечки URL в исключения. */
 @Component

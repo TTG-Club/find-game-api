@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.junit.jupiter.api.*;
 import org.springframework.context.annotation.*;
@@ -21,7 +21,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Проверяет реальные SQL и транзакции настройки и захвата выпусков. */
 @SpringJUnitConfig(PublicationIntegrationTest.Configuration.class)
@@ -33,13 +33,17 @@ class PublicationIntegrationTest {
         @Bean JdbcTemplate jdbc(DataSource source) { return new JdbcTemplate(source); }
         @Bean PlatformTransactionManager transactions(DataSource source) { return new DataSourceTransactionManager(source); }
         @Bean ObjectMapper mapper() { return new ObjectMapper(); }
-        @Bean WebhookSecrets secrets() { return new WebhookSecrets("", "0123456789abcdef0123456789abcdef"); }
+        @Bean PublicationSecrets secrets() { return new PublicationSecrets("", "0123456789abcdef0123456789abcdef"); }
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
-        @Bean PublicationService service(PublicationStore store, WebhookSecrets secrets) { return new PublicationService(store, secrets); }
+        @Bean PublicationService service(PublicationStore store, PublicationSecrets secrets, PublicationSender sender) { return new PublicationService(store, secrets, sender); }
         @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://new.ttg.club"); }
         @Bean DiscordWebhookClient client() { return mock(DiscordWebhookClient.class); }
-        @Bean PublicationTestSender testSender(PublicationService service, WebhookSecrets secrets, DiscordWebhookClient client) {
-            return new PublicationTestSender(service, secrets, client);
+        @Bean TelegramBotClient telegram() { return mock(TelegramBotClient.class); }
+        @Bean PublicationSender sender(PublicationSecrets secrets, DiscordWebhookClient client, TelegramBotClient telegram) {
+            return new PublicationSender(secrets, client, telegram);
+        }
+        @Bean PublicationTestSender testSender(PublicationService service, PublicationSender sender) {
+            return new PublicationTestSender(service, sender);
         }
     }
     @Autowired DataSource source;
@@ -47,17 +51,20 @@ class PublicationIntegrationTest {
     @Autowired PublicationService service;
     @Autowired GameDigest digest;
     @Autowired ObjectMapper mapper;
-    @Autowired WebhookSecrets secrets;
+    @Autowired PublicationSecrets secrets;
     @Autowired DiscordWebhookClient client;
     @Autowired PublicationTestSender testSender;
+    @Autowired TelegramBotClient telegram;
     private static final List<Slot> GLOBAL = List.of(new Slot(1, "18:00"), new Slot(4, "20:00"));
     private static final String WEBHOOK = "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60);
 
     /** Выполняет настоящую миграцию на чистой тестовой базе. */
     @BeforeEach void prepare() {
-        reset(client);
+        reset(client, telegram);
+        when(telegram.configured()).thenReturn(true);
         jdbc.execute("drop all objects");
         new ResourceDatabasePopulator(new ClassPathResource("db/changelog/changes/057-discord-publications.sql")).execute(source);
+        new ResourceDatabasePopulator(new ClassPathResource("db/changelog/changes/058-telegram-publications.sql")).execute(source);
         jdbc.execute("create table game_systems (code varchar primary key, name varchar)");
         jdbc.execute("create table games (id uuid primary key, title varchar, game_system varchar, custom_system varchar, max_players integer, list_position_at timestamp with time zone, status varchar, visibility varchar, deleted_at timestamp with time zone, recruitment_closed boolean)");
         jdbc.execute("create table game_registrations (id uuid primary key, game_id uuid, status varchar)");
@@ -116,7 +123,7 @@ class PublicationIntegrationTest {
         assertThat(second.runId()).isEqualTo(first.runId());
         assertThat(second.attempts()).isEqualTo(2);
         service.finish(second, new Outcome("RETRY", "Лимит", null, now.plusSeconds(60)), 3, now.plusSeconds(31));
-        service.saveChannel(channel.id(), new ChannelInput("Новое имя", false, "", null, channel.revision()));
+        service.saveChannel(channel.id(), new ChannelInput("Новое имя", false, "", null, channel.revision(), null, Platform.DISCORD));
         assertThat(service.history().getFirst().status()).isEqualTo("SKIPPED");
         assertThat(service.claim(now.plusSeconds(61))).isNull();
     }
@@ -128,10 +135,10 @@ class PublicationIntegrationTest {
         String storedSecret = jdbc.queryForObject("select webhook_secret from discord_publication_channels", String.class);
         assertThat(service.overview().configured()).isTrue();
         assertThat(storedSecret).startsWith("hkdf-v1:").doesNotContain(WEBHOOK, "0123456789abcdef0123456789abcdef");
-        assertThat(secrets.decrypt(storedSecret)).isEqualTo(WEBHOOK);
+        assertThat(secrets.decrypt(Platform.DISCORD, storedSecret)).isEqualTo(WEBHOOK);
         assertThatThrownBy(() -> addChannel("Повтор", null, WEBHOOK.replace("/api/", "/api/v10/"))).isInstanceOf(ResponseStatusException.class);
-        service.saveChannel(channel.id(), new ChannelInput("Изменён", true, "", null, 0));
-        assertThatThrownBy(() -> service.saveChannel(channel.id(), new ChannelInput("Устарел", true, "", null, 0))).isInstanceOf(ResponseStatusException.class);
+        service.saveChannel(channel.id(), new ChannelInput("Изменён", true, "", null, 0, null, Platform.DISCORD));
+        assertThatThrownBy(() -> service.saveChannel(channel.id(), new ChannelInput("Устарел", true, "", null, 0, null, Platform.DISCORD))).isInstanceOf(ResponseStatusException.class);
         due(channel.id(), Instant.now().minusSeconds(10));
         Delivery delivery = service.claim(Instant.now());
         service.deleteChannel(channel.id(), 1);
@@ -193,7 +200,7 @@ class PublicationIntegrationTest {
             assertThat(game.description()).isEmpty();
             assertThat(game.takenSeats()).isEqualTo(1);
         });
-        var payload = mapper.valueToTree(digest.messages(preview).getFirst().payload());
+        var payload = mapper.valueToTree(digest.messages(preview, Platform.DISCORD).getFirst().payload());
         assertThat(payload.has("embeds")).isFalse();
         assertThat(payload.path("content").asString())
                 .startsWith("Игры с открытым набором на сайте new.ttg.club\n\n")
@@ -211,7 +218,7 @@ class PublicationIntegrationTest {
             assertThat(game.genreSummary()).isEmpty();
             assertThat(game.description()).isEmpty();
         });
-        assertThat(mapper.writeValueAsString(digest.messages(preview))).doesNotContain("Жанры:", "\\n> ");
+        assertThat(mapper.writeValueAsString(digest.messages(preview, Platform.DISCORD))).doesNotContain("Жанры:", "\\n> ");
     }
 
     /** Полный выпуск уходит одним запросом; даже длинные описания игр не публикуются. */
@@ -229,7 +236,7 @@ class PublicationIntegrationTest {
         assertThat(preview).hasSize(8);
         assertThat(preview).allSatisfy(game -> assertThat(game.description()).isEmpty());
         when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "111111111111111111", null));
-        new PublicationScheduler(service, secrets, digest, client).publish(delivery);
+        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class))).publish(delivery);
         assertThat(service.history()).singleElement().satisfies(run -> {
             assertThat(run.status()).isEqualTo("SENT");
             assertThat(run.detail()).isEqualTo("Опубликовано сообщений: 1");
@@ -256,7 +263,7 @@ class PublicationIntegrationTest {
         due(first.id(), now.minusSeconds(20));
         due(second.id(), now.minusSeconds(10));
         Delivery claimed = service.claim(now);
-        Delivery finalAttempt = new Delivery(claimed.runId(), claimed.channelId(), claimed.channelRevision(), claimed.secret(), claimed.scheduledAt(), 3);
+        Delivery finalAttempt = new Delivery(claimed.runId(), claimed.channelId(), claimed.channelRevision(), claimed.secret(), claimed.scheduledAt(), 3, Platform.DISCORD);
         service.finish(finalAttempt, new Outcome("RETRY", "Лимит", null, now.plusSeconds(60)), 2, now);
         assertThat(service.history().getFirst().status()).isEqualTo("FAILED");
         assertThat(service.claim(now.plusSeconds(59))).isNull();
@@ -265,7 +272,7 @@ class PublicationIntegrationTest {
 
     /** Сохранённый выключенный канал проверяется до включения расписания; HTTP не удерживает транзакцию. */
     @Test void testSendsSavedSecretWithoutEnablingOrChangingSchedule() {
-        Channel channel = service.saveChannel(null, new ChannelInput("Тестовый канал", false, WEBHOOK, null, 0)).channels().getFirst();
+        Channel channel = service.saveChannel(null, new ChannelInput("Тестовый канал", false, WEBHOOK, null, 0, null, Platform.DISCORD)).channels().getFirst();
         Overview before = service.overview();
         when(client.send(eq(WEBHOOK), anyMap())).thenAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
@@ -292,7 +299,7 @@ class PublicationIntegrationTest {
         Overview before = service.overview();
         Delivery delivery = service.claimTest(channel.id(), channel.revision(), Instant.now());
         assertThat(service.overview()).isEqualTo(before);
-        service.saveChannel(channel.id(), new ChannelInput("Новое имя", true, "", null, channel.revision()));
+        service.saveChannel(channel.id(), new ChannelInput("Новое имя", true, "", null, channel.revision(), null, Platform.DISCORD));
         assertThat(service.currentTest(delivery)).isFalse();
         assertThatThrownBy(() -> testSender.send(channel.id(), channel.revision())).isInstanceOf(ResponseStatusException.class);
         service.deleteChannel(channel.id(), channel.revision() + 1);
@@ -360,8 +367,125 @@ class PublicationIntegrationTest {
         verifyNoInteractions(client);
     }
 
+    /** Telegram хранится зашифрованным, использует общий график и не отдаёт ID обратно в API. */
+    @Test void telegramStorageAndSecretReplacement() {
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        String chatId = "-1001234567890";
+        Channel channel = service.saveChannel(null, new ChannelInput("Telegram", true, "", null, 0, chatId, Platform.TELEGRAM)).channels().getFirst();
+        assertThat(channel.platform()).isEqualTo(Platform.TELEGRAM);
+        assertThat(channel.nextRunAt()).isNotNull();
+        String encrypted = jdbc.queryForObject("select webhook_secret from discord_publication_channels where id = ?", String.class, channel.id());
+        String fingerprint = jdbc.queryForObject("select webhook_fingerprint from discord_publication_channels where id = ?", String.class, channel.id());
+        assertThat(encrypted).doesNotContain(chatId);
+        assertThat(secrets.decrypt(Platform.TELEGRAM, encrypted)).isEqualTo(chatId);
+        assertThat(mapper.writeValueAsString(service.overview())).doesNotContain(chatId, encrypted, fingerprint, "telegramChatId", "webhookUrl");
+        assertThatThrownBy(() -> service.saveChannel(null, new ChannelInput("Повтор", true, "", null, 0, chatId, Platform.TELEGRAM)))
+                .isInstanceOf(ResponseStatusException.class);
+        service.saveChannel(channel.id(), new ChannelInput("Переименован", true, "", null, 0, "", Platform.TELEGRAM));
+        assertThat(jdbc.queryForObject("select webhook_secret from discord_publication_channels where id = ?", String.class, channel.id())).isEqualTo(encrypted);
+        assertThatThrownBy(() -> service.saveChannel(channel.id(), new ChannelInput("Смена платформы", true, WEBHOOK, null, 1, null, Platform.DISCORD)))
+                .isInstanceOf(ResponseStatusException.class);
+        service.saveChannel(channel.id(), new ChannelInput("Новый ID", true, "", null, 1, "-1001234567891", Platform.TELEGRAM));
+        assertThat(secrets.decrypt(Platform.TELEGRAM, jdbc.queryForObject("select webhook_secret from discord_publication_channels where id = ?", String.class, channel.id())))
+                .isEqualTo("-1001234567891");
+    }
+
+    /** Недоступный бот не мешает сохранять ID и публиковать в Discord. */
+    @Test void missingTelegramTokenDoesNotBlockDiscord() {
+        when(telegram.configured()).thenReturn(false);
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        Channel telegramChannel = service.saveChannel(null, new ChannelInput("Telegram", true, "", null, 0, "-1001234567890", Platform.TELEGRAM)).channels().getFirst();
+        Channel discordChannel = addChannel("Discord", null, WEBHOOK);
+        Instant now = Instant.now();
+        due(telegramChannel.id(), now.minusSeconds(20));
+        due(discordChannel.id(), now.minusSeconds(10));
+        assertThat(service.overview().telegramConfigured()).isFalse();
+        assertThatThrownBy(() -> service.claimTest(telegramChannel.id(), 0, now)).isInstanceOf(ResponseStatusException.class);
+        assertThat(service.claim(now).platform()).isEqualTo(Platform.DISCORD);
+    }
+
+    /** Telegram получает одно сообщение с той же подборкой, а лимит не останавливает Discord. */
+    @Test void telegramDeliveryAndIndependentRateLimit() {
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        Channel telegramChannel = service.saveChannel(null, new ChannelInput("Telegram", true, "", null, 0, "-1001234567890", Platform.TELEGRAM)).channels().getFirst();
+        Channel discordChannel = addChannel("Discord", null, WEBHOOK);
+        Instant now = Instant.now();
+        game("DND", null, now, "OPEN", "PUBLIC", false);
+        due(telegramChannel.id(), now.minusSeconds(20));
+        due(discordChannel.id(), now.minusSeconds(10));
+        Delivery delivery = service.claim(now);
+        assertThat(delivery.platform()).isEqualTo(Platform.TELEGRAM);
+        when(telegram.send(eq("-1001234567890"), anyMap())).thenAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            Map<String, Object> payload = invocation.getArgument(1);
+            assertThat(payload).containsEntry("parse_mode", "HTML").containsEntry("link_preview_options", Map.of("is_disabled", true));
+            assertThat(payload.get("text").toString()).contains("https://new.ttg.club/games/", "Подробнее на сайте");
+            return new Outcome("RETRY", "Лимит", null, now.plusSeconds(60));
+        });
+        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, telegram)).publish(delivery);
+        assertThat(service.claim(now.plusSeconds(1)).channelId()).isEqualTo(discordChannel.id());
+        assertThat(service.claim(now.plusSeconds(59))).isNull();
+        Delivery retry = service.claim(now.plusSeconds(61));
+        assertThat(retry.channelId()).isEqualTo(telegramChannel.id());
+        when(telegram.send(anyString(), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "42", null));
+        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, telegram)).publish(retry);
+        assertThat(service.history()).filteredOn(run -> run.platform() == Platform.TELEGRAM).singleElement()
+                .satisfies(run -> { assertThat(run.status()).isEqualTo("SENT"); assertThat(run.messageId()).isEqualTo("42"); });
+        verifyNoInteractions(client);
+    }
+
+    /** Тест бота не включает график и не отправляет подборку вместо проверки. */
+    @Test void telegramTestUsesSavedIdAndKeepsSchedule() {
+        Channel channel = service.saveChannel(null, new ChannelInput("Telegram", false, "", null, 0, "-1001234567890", Platform.TELEGRAM)).channels().getFirst();
+        Overview before = service.overview();
+        when(telegram.send(eq("-1001234567890"), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "42", null));
+        assertThat(testSender.send(channel.id(), channel.revision()).status()).isEqualTo("SENT");
+        assertThat(service.overview()).isEqualTo(before);
+        verify(telegram).send(eq("-1001234567890"), argThat(payload -> payload.get("text").toString().contains("Тестовое сообщение")));
+        verifyNoInteractions(client);
+        assertThat(service.history()).singleElement().satisfies(run -> { assertThat(run.platform()).isEqualTo(Platform.TELEGRAM); assertThat(run.gameCount()).isZero(); });
+    }
+
+    /** Обновление сохраняет существующие каналы, зашифрованные вебхуки и журнал Discord. */
+    @Test void migrationPreservesExistingDiscordData() {
+        jdbc.execute("drop all objects");
+        new ResourceDatabasePopulator(new ClassPathResource("db/changelog/changes/057-discord-publications.sql")).execute(source);
+        UUID channelId = UUID.randomUUID();
+        String encrypted = secrets.encrypt(Platform.DISCORD, WEBHOOK);
+        Timestamp now = Timestamp.from(Instant.now().minusSeconds(61));
+        jdbc.update("insert into discord_publication_channels (id, name, webhook_secret, webhook_fingerprint, enabled) values (?, 'Прежний канал', ?, ?, true)",
+                channelId, encrypted, secrets.fingerprint(Platform.DISCORD, WEBHOOK));
+        jdbc.update("insert into discord_publication_runs (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, message_id) values (?, ?, 'Прежний канал', 0, ?, ?, 'SENT', '123')",
+                UUID.randomUUID(), channelId, now, now);
+        new ResourceDatabasePopulator(new ClassPathResource("db/changelog/changes/058-telegram-publications.sql")).execute(source);
+        assertThat(service.overview().channels()).singleElement().satisfies(channel -> {
+            assertThat(channel.id()).isEqualTo(channelId);
+            assertThat(channel.platform()).isEqualTo(Platform.DISCORD);
+        });
+        assertThat(service.history()).singleElement().satisfies(run -> {
+            assertThat(run.platform()).isEqualTo(Platform.DISCORD);
+            assertThat(run.messageId()).isEqualTo("123");
+        });
+        String migrated = jdbc.queryForObject("select webhook_secret from discord_publication_channels where id = ?", String.class, channelId);
+        assertThat(migrated).isEqualTo(encrypted);
+        assertThat(secrets.decrypt(Platform.DISCORD, migrated)).isEqualTo(WEBHOOK);
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "124", null));
+        assertThat(testSender.send(channelId, 0).status()).isEqualTo("SENT");
+    }
+
+    /** Ограничение Discord не блокирует Telegram, включая ручную проверку. */
+    @Test void discordPauseDoesNotBlockTelegram() {
+        Channel discordChannel = addChannel("Discord", null, WEBHOOK);
+        Channel telegramChannel = service.saveChannel(null, new ChannelInput("Telegram", false, "", null, 0, "-1001234567890", Platform.TELEGRAM))
+                .channels().stream().filter(channel -> channel.platform() == Platform.TELEGRAM).findFirst().orElseThrow();
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("RETRY", "Лимит", null, Instant.now().plusSeconds(60)));
+        assertThat(testSender.send(discordChannel.id(), 0).status()).isEqualTo("FAILED");
+        when(telegram.send(eq("-1001234567890"), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "42", null));
+        assertThat(testSender.send(telegramChannel.id(), 0).status()).isEqualTo("SENT");
+    }
+
     private Channel addChannel(String name, List<Slot> schedule, String webhook) {
-        return service.saveChannel(null, new ChannelInput(name, true, webhook, schedule, 0)).channels().stream()
+        return service.saveChannel(null, new ChannelInput(name, true, webhook, schedule, 0, null, Platform.DISCORD)).channels().stream()
                 .filter(channel -> channel.name().equals(name)).findFirst().orElseThrow();
     }
     private Channel find(Overview overview, UUID channelId) { return overview.channels().stream().filter(channel -> channel.id().equals(channelId)).findFirst().orElseThrow(); }

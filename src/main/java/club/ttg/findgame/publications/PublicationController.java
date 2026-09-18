@@ -1,14 +1,14 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Настройки доступны только ADMIN через существующее правило /api/v1/admin/**. */
 @RestController
-@RequestMapping("/api/v1/admin/discord-publications")
+@RequestMapping({"/api/v1/admin/game-publications", "/api/v1/admin/discord-publications"})
 public class PublicationController {
     private final PublicationService service;
     private final GameDigest digest;
@@ -32,10 +32,10 @@ public class PublicationController {
     /** Удаляет канал, оставляя историю. */
     @DeleteMapping("/channels/{channelId}")
     public Overview delete(@PathVariable UUID channelId, @RequestParam long revision) { return service.deleteChannel(channelId, revision); }
-    /** Проверяет сохранённый вебхук одним сообщением без изменения расписания. */
+    /** Проверяет сохранённый канал одним сообщением без изменения расписания. */
     @PostMapping("/channels/{channelId}/test")
     public TestResult test(@PathVariable UUID channelId, @RequestParam long revision) { return testSender.send(channelId, revision); }
-    /** Показывает текущую подборку без отправки в Discord. */
+    /** Показывает текущую подборку без отправки в каналы. */
     @GetMapping("/preview")
     public List<GameEntry> preview() { return digest.preview(); }
     /** Показывает последние результаты. */

@@ -1,15 +1,16 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Подборка разных систем из публичного каталога без приватных полей. */
 @Service
@@ -77,12 +78,22 @@ public class GameDigest {
         return fit(selected);
     }
 
-    /** Собирает всю подборку в одно обычное сообщение до 2000 символов. */
-    List<DigestMessage> messages(List<GameEntry> games) {
+    /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками. */
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform) {
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
-        StringBuilder content = new StringBuilder(heading);
-        for (GameEntry game : selected) content.append("\n\n").append(gameBlock(game));
+        StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(heading) : heading);
+        for (GameEntry game : selected) {
+            content.append("\n\n");
+            if (platform == Platform.TELEGRAM) {
+                content.append(HtmlUtils.htmlEscapeDecimal(gameDetails(game))).append("\n<a href=\"")
+                        .append(HtmlUtils.htmlEscapeDecimal(game.url())).append("\">Подробнее на сайте</a>");
+            } else content.append(gameBlock(game));
+        }
+        if (platform == Platform.TELEGRAM) {
+            return List.of(new DigestMessage(Map.of("text", content.toString(), "parse_mode", "HTML",
+                    "link_preview_options", Map.of("is_disabled", true)), selected.size()));
+        }
         return List.of(message(content.toString(), selected.size()));
     }
 
@@ -123,10 +134,14 @@ public class GameDigest {
 
     /** Показывает название, систему, места, жанры и ссылку без описания игры. */
     private static String gameBlock(GameEntry game) {
+        return gameDetails(game) + "\n[Подробнее на сайте](" + game.url() + ")";
+    }
+
+    /** Даёт обеим платформам одинаковые сведения без описаний и разметки ссылок. */
+    private static String gameDetails(GameEntry game) {
         return game.title() + "\n" + game.system() + " · Занято " + game.takenSeats() + "/" + game.maxPlayers()
                 + " · Свободно " + (game.maxPlayers() - game.takenSeats())
-                + (game.genreSummary().isBlank() ? "" : "\nЖанры: " + game.genreSummary())
-                + "\n[Подробнее на сайте](" + game.url() + ")";
+                + (game.genreSummary().isBlank() ? "" : "\nЖанры: " + game.genreSummary());
     }
 
     /** Убирает разметку и управляющие символы из пользовательских названий. */

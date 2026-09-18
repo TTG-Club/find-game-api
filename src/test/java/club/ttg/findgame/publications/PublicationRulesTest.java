@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
@@ -9,7 +9,7 @@ import java.time.Instant;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Проверяет границы расписания, безопасность вебхука и полный путь отправки. */
 class PublicationRulesTest {
@@ -24,15 +24,15 @@ class PublicationRulesTest {
     }
 
     @Test void webhookAllowsOnlyDiscordAndAuthenticatesCiphertext() {
-        WebhookSecrets secrets = new WebhookSecrets(Base64.getEncoder().encodeToString(new byte[32]), "0123456789abcdef0123456789abcdef");
+        PublicationSecrets secrets = new PublicationSecrets(Base64.getEncoder().encodeToString(new byte[32]), "0123456789abcdef0123456789abcdef");
         String valid = "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60);
         for (String invalid : List.of(valid + "?wait=false", valid + "#fragment", valid.replace("discord.com", "discord.com.attacker.test"), valid.replace("https:", "http:"), valid.replace("discord.com", "127.0.0.1"))) {
-            assertThatThrownBy(() -> secrets.normalize(invalid)).isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> secrets.normalize(Platform.DISCORD, invalid)).isInstanceOf(RuntimeException.class);
         }
-        String encrypted = secrets.encrypt(valid);
-        assertThat(secrets.encrypt(valid)).isNotEqualTo(encrypted);
-        assertThatThrownBy(() -> secrets.decrypt(encrypted.substring(1))).isInstanceOf(IllegalStateException.class);
-        assertThat(new WebhookSecrets("", "0123456789abcdef0123456789abcdef").configured()).isTrue();
+        String encrypted = secrets.encrypt(Platform.DISCORD, valid);
+        assertThat(secrets.encrypt(Platform.DISCORD, valid)).isNotEqualTo(encrypted);
+        assertThatThrownBy(() -> secrets.decrypt(Platform.DISCORD, encrypted.substring(1))).isInstanceOf(IllegalStateException.class);
+        assertThat(new PublicationSecrets("", "0123456789abcdef0123456789abcdef").configured()).isTrue();
     }
 
     @Test void discordAcknowledgementsAndRateLimit() {
@@ -48,18 +48,18 @@ class PublicationRulesTest {
 
     @Test void sendsCompactPayloadAndRecordsResult() {
         PublicationService service = mock(PublicationService.class);
-        WebhookSecrets secrets = mock(WebhookSecrets.class);
+        PublicationSecrets secrets = mock(PublicationSecrets.class);
         GameDigest digest = mock(GameDigest.class);
         DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-        PublicationScheduler scheduler = new PublicationScheduler(service, secrets, digest, client);
-        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1);
+        PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class)));
+        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
         GameEntry game = new GameEntry(UUID.randomUUID(), "Название", "D&D", 1, 4, "https://new.ttg.club/games/example", "Фэнтези", "Короткое описание");
         List<GameEntry> games = List.of(game);
         Map<String, Object> payload = Map.of("content", "Подборка");
         when(digest.preview()).thenReturn(games);
-        when(digest.messages(games)).thenReturn(List.of(new DigestMessage(payload, 1)));
+        when(digest.messages(games, Platform.DISCORD)).thenReturn(List.of(new DigestMessage(payload, 1)));
         when(service.current(delivery)).thenReturn(true);
-        when(secrets.decrypt("encrypted")).thenReturn("validated-webhook");
+        when(secrets.decrypt(Platform.DISCORD, "encrypted")).thenReturn("validated-webhook");
         Outcome sent = new Outcome("SENT", "Опубликовано", "123456789012345678", null);
         when(client.send("validated-webhook", payload)).thenReturn(sent);
         scheduler.publish(delivery);
@@ -75,7 +75,7 @@ class PublicationRulesTest {
         GameDigest digest = new GameDigest(mock(JdbcTemplate.class), siteUrl);
         List<GameEntry> games = new ArrayList<>();
         for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(50) + "."));
-        List<DigestMessage> messages = digest.messages(games);
+        List<DigestMessage> messages = digest.messages(games, Platform.DISCORD);
         assertThat(messages).hasSize(1);
         assertThat(messages.getFirst().gameCount()).isEqualTo(8);
         String joined = messages.stream().map(message -> message.payload().get("content").toString()).collect(java.util.stream.Collectors.joining("\n"));
@@ -92,7 +92,7 @@ class PublicationRulesTest {
             assertThat(content).doesNotContain("\n\n[Подробнее", "\n> ");
             assertThat(content.lines().filter(line -> line.startsWith("Жанры: ")).count()).isEqualTo(8);
         }
-        assertThat(digest.messages(List.of())).isEmpty();
+        assertThat(digest.messages(List.of(), Platform.DISCORD)).isEmpty();
     }
 
     /** Даже короткие описания не публикуются, когда в сообщении для них достаточно места. */
@@ -104,7 +104,7 @@ class PublicationRulesTest {
             games.add(new GameEntry(gameId, "Игра " + index, "D&D", 1, 4,
                     "https://new.ttg.club/games/" + gameId, "Детектив", "Найдите мага…"));
         }
-        List<DigestMessage> messages = digest.messages(games);
+        List<DigestMessage> messages = digest.messages(games, Platform.DISCORD);
         assertThat(messages).hasSize(1);
         String content = messages.getFirst().payload().get("content").toString();
         assertThat(content.length()).isLessThanOrEqualTo(2000);
@@ -122,7 +122,7 @@ class PublicationRulesTest {
             UUID gameId = UUID.randomUUID();
             games.add(new GameEntry(gameId, "🎲 Тайна ".repeat(20), "🎲 Система ".repeat(20), 14, 15,
                     siteUrl + "/games/" + gameId, "🎲 Жанр ".repeat(30), "Найдите мага. " + "Долгое приключение ".repeat(20) + "начинается…"));
-            List<DigestMessage> messages = digest.messages(games);
+            List<DigestMessage> messages = digest.messages(games, Platform.DISCORD);
             assertThat(messages).hasSize(1);
             assertThat(messages.getFirst().gameCount()).isEqualTo(count);
             String content = messages.getFirst().payload().get("content").toString();
@@ -141,20 +141,20 @@ class PublicationRulesTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     GameEntry game = new GameEntry(UUID.randomUUID(), "Игра", "D&D", 1, 4, "https://new.ttg.club/games/example", "", "");
-                    var message = context.getBean(GameDigest.class).messages(List.of(game)).getFirst();
+                    var message = context.getBean(GameDigest.class).messages(List.of(game), Platform.DISCORD).getFirst();
                     assertThat(message.payload().get("content").toString()).startsWith("Игры с открытым набором на сайте new.ttg.club\n\n");
                 });
     }
 
     @Test void emptyCatalogueNeverCallsDiscord() {
         PublicationService service = mock(PublicationService.class);
-        WebhookSecrets secrets = mock(WebhookSecrets.class);
+        PublicationSecrets secrets = mock(PublicationSecrets.class);
         GameDigest digest = mock(GameDigest.class);
         DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1);
+        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
         when(digest.preview()).thenReturn(List.of());
         when(service.current(delivery)).thenReturn(true);
-        new PublicationScheduler(service, secrets, digest, client).publish(delivery);
+        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class))).publish(delivery);
         verifyNoInteractions(client, secrets);
         verify(service).finish(eq(delivery), eq(new Outcome("SKIPPED", "Нет игр с открытым набором", null, null)), eq(0), any());
     }

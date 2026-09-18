@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -6,7 +6,7 @@ import java.time.*;
 import java.time.temporal.TemporalAdjusters;
 import java.util.HashSet;
 import java.util.List;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Еженедельное расписание с явной зоной, независимое от времени сервера. */
 final class WeeklySchedule {

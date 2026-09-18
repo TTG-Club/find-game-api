@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -9,8 +9,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Хранилище расписаний и журнала; HTTP выполняется вне транзакций. */
 @Repository
@@ -33,7 +34,7 @@ public class PublicationStore {
         return jdbc.query("select * from discord_publication_channels order by name, id", (result, rowNumber) ->
                 new StoredChannel(new Channel(result.getObject("id", UUID.class), result.getString("name"),
                         result.getBoolean("enabled"), slots(result.getString("schedule")), result.getLong("revision"),
-                        instant(result, "next_run_at")), result.getString("webhook_secret"), result.getString("webhook_fingerprint")));
+                        instant(result, "next_run_at"), platform(result)), result.getString("webhook_secret"), result.getString("webhook_fingerprint")));
     }
 
     /** Сохраняет общие настройки под блокировкой. */
@@ -45,10 +46,10 @@ public class PublicationStore {
     /** Добавляет новый канал с уже зашифрованным секретом. */
     void insertChannel(Channel channel, String secret, String fingerprint) {
         jdbc.update("""
-                insert into discord_publication_channels (id, name, enabled, schedule, revision, next_run_at, webhook_secret, webhook_fingerprint)
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                insert into discord_publication_channels (id, name, enabled, schedule, revision, next_run_at, webhook_secret, webhook_fingerprint, platform)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, channel.id(), channel.name(), channel.enabled(), serialize(channel.schedule()), channel.revision(),
-                timestamp(channel.nextRunAt()), secret, fingerprint);
+                timestamp(channel.nextRunAt()), secret, fingerprint, platformName(channel.platform()));
     }
 
     /** Заменяет настройки существующего канала. */
@@ -76,12 +77,12 @@ public class PublicationStore {
         UUID runId = UUID.randomUUID();
         jdbc.update("""
                 insert into discord_publication_runs
-                (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, finished_at, detail)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, finished_at, detail, platform)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, runId, channel.id(), channel.name(), channel.revision(), timestamp(channel.nextRunAt()), timestamp(now),
-                expired ? "SKIPPED" : "SENDING", expired ? timestamp(now) : null, expired ? "Пропущено после простоя более 15 минут" : "");
+                expired ? "SKIPPED" : "SENDING", expired ? timestamp(now) : null, expired ? "Пропущено после простоя более 15 минут" : "", platformName(channel.platform()));
         jdbc.update("update discord_publication_channels set next_run_at = ? where id = ?", timestamp(nextRun), channel.id());
-        return new Delivery(runId, channel.id(), channel.revision(), secret, channel.nextRunAt(), 1);
+        return new Delivery(runId, channel.id(), channel.revision(), secret, channel.nextRunAt(), 1, channel.platform());
     }
 
     /** Не допускает параллельный тест и частые нажатия, включая запросы с другой реплики. */
@@ -98,22 +99,22 @@ public class PublicationStore {
         Channel channel = stored.channel();
         jdbc.update("""
                 insert into discord_publication_runs
-                (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, detail)
-                values (?, ?, ?, ?, ?, ?, 'SENDING', 'Тест: отправляется')
-                """, runId, channel.id(), channel.name(), channel.revision(), timestamp(now), timestamp(now));
-        return new Delivery(runId, channel.id(), channel.revision(), stored.secret(), now, 1);
+                (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, detail, platform)
+                values (?, ?, ?, ?, ?, ?, 'SENDING', 'Тест: отправляется', ?)
+                """, runId, channel.id(), channel.name(), channel.revision(), timestamp(now), timestamp(now), platformName(channel.platform()));
+        return new Delivery(runId, channel.id(), channel.revision(), stored.secret(), now, 1, channel.platform());
     }
 
-    /** Захватывает один допустимый повтор после ограничения частоты Discord. */
-    Delivery retry(Instant now) {
+    /** Захватывает один допустимый повтор после ограничения частоты выбранной платформы. */
+    Delivery retry(Instant now, Platform platform) {
         List<Delivery> deliveries = jdbc.query("""
                 select runs.*, channels.webhook_secret from discord_publication_runs runs
                 join discord_publication_channels channels on channels.id = runs.channel_id
                 where runs.status = 'RETRY' and runs.retry_at <= ? and channels.enabled = true
-                and runs.channel_revision = channels.revision order by runs.retry_at limit 1
+                and runs.channel_revision = channels.revision and channels.platform = ? order by runs.retry_at limit 1
                 """, (result, rowNumber) -> new Delivery(result.getObject("id", UUID.class), result.getObject("channel_id", UUID.class),
                 result.getLong("channel_revision"), result.getString("webhook_secret"), instant(result, "scheduled_at"),
-                result.getInt("attempts") + 1), timestamp(now));
+                result.getInt("attempts") + 1, platform(result)), timestamp(now), platformName(platform));
         if (deliveries.isEmpty()) return null;
         Delivery delivery = deliveries.getFirst();
         jdbc.update("update discord_publication_runs set status = 'SENDING', started_at = ?, attempts = ? where id = ?",
@@ -144,12 +145,17 @@ public class PublicationStore {
                 gameCount, timestamp(now), delivery.runId());
     }
 
-    /** Учитывает лимит Discord для всех реплик, даже если текущий выпуск уже исчерпал попытки. */
-    void pauseUntil(Instant until) {
-        jdbc.update("""
-                update discord_publication_settings set paused_until = ?
-                where id = 1 and (paused_until is null or paused_until < ?)
-                """, timestamp(until), timestamp(until));
+    /** Учитывает лимит выбранной платформы для всех реплик, даже если текущий выпуск уже исчерпал попытки. */
+    void pauseUntil(Platform platform, Instant until) {
+        String column = pauseColumn(platform);
+        jdbc.update("update discord_publication_settings set " + column + " = ? where id = 1 and ("
+                + column + " is null or " + column + " < ?)", timestamp(until), timestamp(until));
+    }
+
+    /** Проверяет общую для реплик паузу только выбранной платформы. */
+    boolean paused(Platform platform, Instant now) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("select " + pauseColumn(platform)
+                + " > ? from discord_publication_settings where id = 1", Boolean.class, timestamp(now)));
     }
 
     /** Возвращает последние 50 выпусков без секретов. */
@@ -157,8 +163,15 @@ public class PublicationStore {
         return jdbc.query("select * from discord_publication_runs order by scheduled_at desc, id desc limit 50",
                 (result, rowNumber) -> new Run(result.getObject("id", UUID.class), result.getString("channel_name"),
                         instant(result, "scheduled_at"), result.getString("status"), result.getInt("game_count"),
-                        result.getString("detail"), result.getString("message_id")));
+                        result.getString("detail"), result.getString("message_id"), platform(result)));
     }
+
+    /** Выбирает имя столбца из закрытого списка, без пользовательского SQL. */
+    private static String pauseColumn(Platform platform) { return platform == Platform.TELEGRAM ? "telegram_paused_until" : "paused_until"; }
+    /** Сохраняет код платформы в принятом нижнем регистре. */
+    private static String platformName(Platform platform) { return platform.name().toLowerCase(Locale.ROOT); }
+    /** Читает платформу, закреплённую за каналом или записью истории. */
+    private static Platform platform(ResultSet result) throws SQLException { return Platform.valueOf(result.getString("platform").toUpperCase(Locale.ROOT)); }
 
     /** Разбирает только расписание известного внутреннего формата. */
     private List<Slot> slots(String serialized) { return serialized == null ? null : Arrays.asList(mapper.readValue(serialized, Slot[].class)); }

@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -7,18 +7,18 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 /** Проверяет частичную доставку обычных сообщений и отсутствие повторных публикаций. */
 class PublicationBatchTest {
     private final PublicationService service = mock(PublicationService.class);
-    private final WebhookSecrets secrets = mock(WebhookSecrets.class);
+    private final PublicationSecrets secrets = mock(PublicationSecrets.class);
     private final GameDigest digest = mock(GameDigest.class);
     private final DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-    private final PublicationScheduler scheduler = new PublicationScheduler(service, secrets, digest, client);
-    private final Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1);
+    private final PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class)));
+    private final Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
     private final List<DigestMessage> messages = List.of(
             new DigestMessage(Map.of("content", "Первая часть"), 2),
             new DigestMessage(Map.of("content", "Вторая часть"), 1),
@@ -30,9 +30,9 @@ class PublicationBatchTest {
                 new GameEntry(UUID.randomUUID(), "Игра " + index, "D&D", 1, 4,
                         "https://new.ttg.club/games/example", "", "Описание.")).toList();
         when(service.current(delivery)).thenReturn(true);
-        when(secrets.decrypt("encrypted")).thenReturn("validated-webhook");
+        when(secrets.decrypt(Platform.DISCORD, "encrypted")).thenReturn("validated-webhook");
         when(digest.preview()).thenReturn(games);
-        when(digest.messages(games)).thenReturn(messages);
+        when(digest.messages(games, Platform.DISCORD)).thenReturn(messages);
     }
 
     /** Не оставляет прерывание тестового потока для соседних тестов. */

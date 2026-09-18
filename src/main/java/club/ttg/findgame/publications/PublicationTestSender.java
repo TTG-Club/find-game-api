@@ -1,25 +1,27 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
-/** Проверяет сохранённый вебхук без публикации подборки и без транзакции на время HTTP. */
+/** Проверяет сохранённый канал без публикации подборки и без транзакции на время HTTP. */
 @Service
 public class PublicationTestSender {
-    private static final Map<String, Object> MESSAGE = Map.of(
+    private static final Map<String, Object> DISCORD_MESSAGE = Map.of(
             "content", "✅ Тестовое сообщение TTG Club. Вебхук работает: сообщения из админки доходят в этот канал.",
             "allowed_mentions", Map.of("parse", List.of()));
+    private static final Map<String, Object> TELEGRAM_MESSAGE = Map.of(
+            "text", "✅ Тестовое сообщение TTG Club. Бот работает: сообщения из админки доходят в этот канал.",
+            "link_preview_options", Map.of("is_disabled", true));
     private final PublicationService service;
-    private final WebhookSecrets secrets;
-    private final DiscordWebhookClient client;
+    private final PublicationSender sender;
 
     /** Использует те же шифрование, HTTP-клиент и журнал, что и плановые публикации. */
-    public PublicationTestSender(PublicationService service, WebhookSecrets secrets, DiscordWebhookClient client) {
-        this.service = service; this.secrets = secrets; this.client = client;
+    public PublicationTestSender(PublicationService service, PublicationSender sender) {
+        this.service = service; this.sender = sender;
     }
 
     /** Фиксирует намерение перед HTTP и возвращает только безопасный результат. */
@@ -28,7 +30,7 @@ public class PublicationTestSender {
         Outcome outcome;
         try {
             outcome = service.currentTest(delivery)
-                    ? client.send(secrets.decrypt(delivery.secret()), MESSAGE)
+                    ? sender.send(delivery, delivery.platform() == Platform.TELEGRAM ? TELEGRAM_MESSAGE : DISCORD_MESSAGE)
                     : new Outcome("SKIPPED", "Канал изменён или удалён; обновите страницу", null, null);
         } catch (RuntimeException exception) {
             // Исключение может содержать URL: не передаём его в журнал или API.

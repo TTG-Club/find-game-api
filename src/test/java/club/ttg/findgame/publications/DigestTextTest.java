@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;

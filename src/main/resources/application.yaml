@@ -73,6 +73,7 @@ logbook:
       - about
       - reason
       - webhookUrl
+      - telegramChatId
   write:
     max-body-size: 8192
   exclude:
@@ -88,3 +89,7 @@ logging:
 discord-publications:
   encryption-key: ${DISCORD_WEBHOOK_ENCRYPTION_KEY:}
   site-url: ${DISCORD_PUBLICATION_SITE_URL:https://new.ttg.club}
+
+# Тот же бот, что в core-api; ID каналов задаются через админку и шифруются в базе.
+telegram:
+  bot-token: ${TELEGRAM_BOT_TOKEN:}

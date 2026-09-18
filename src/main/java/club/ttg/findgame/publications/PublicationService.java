@@ -1,4 +1,4 @@
-package club.ttg.findgame.discord;
+package club.ttg.findgame.publications;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -6,25 +6,29 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
-import static club.ttg.findgame.discord.PublicationModels.*;
+import static club.ttg.findgame.publications.PublicationModels.*;
 
 /** Управляет настройками и атомарным переходом выпуска к отправке. */
 @Service
 public class PublicationService {
     private final PublicationStore store;
-    private final WebhookSecrets secrets;
+    private final PublicationSecrets secrets;
+    private final PublicationSender sender;
 
     /** Подключает хранилище и серверное шифрование. */
-    public PublicationService(PublicationStore store, WebhookSecrets secrets) { this.store = store; this.secrets = secrets; }
+    public PublicationService(PublicationStore store, PublicationSecrets secrets, PublicationSender sender) {
+        this.store = store; this.secrets = secrets; this.sender = sender;
+    }
 
-    /** Возвращает согласованный снимок настроек без вебхуков. */
+    /** Возвращает согласованный снимок настроек без адресов каналов. */
     @Transactional
     public Overview overview() {
         Settings settings = store.settings(true);
         return new Overview(settings, store.channels().stream().map(StoredChannel::channel).toList(),
-                secrets.configured(), WeeklySchedule.ZONE.getId());
+                secrets.configured(), WeeklySchedule.ZONE.getId(), sender.configured(Platform.TELEGRAM));
     }
 
     /** Меняет общий график и пересчитывает только нужные каналы. */
@@ -42,7 +46,7 @@ public class PublicationService {
                 List<Slot> schedule = channel.schedule() == null ? input.schedule() : channel.schedule();
                 Instant next = input.enabled() && channel.enabled() ? WeeklySchedule.next(schedule, now) : null;
                 store.updateChannel(new Channel(channel.id(), channel.name(), channel.enabled(), channel.schedule(),
-                        channel.revision() + 1, next), stored.secret(), stored.fingerprint());
+                        channel.revision() + 1, next, channel.platform()), stored.secret(), stored.fingerprint());
                 store.cancelRetries(channel.id(), now);
             }
         }
@@ -61,19 +65,29 @@ public class PublicationService {
         if (previous == null && channels.size() >= 100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Можно настроить до 100 каналов");
         }
-        boolean replaceSecret = input.webhookUrl() != null && !input.webhookUrl().isBlank();
-        String webhook = replaceSecret || previous == null ? secrets.normalize(input.webhookUrl()) : null;
-        String fingerprint = webhook == null ? previous.fingerprint() : secrets.fingerprint(webhook);
+        // Отсутствие platform поддерживает сохранённый контракт Discord и не меняет тип существующего канала.
+        Platform platform = input.platform() == null ? previous == null ? Platform.DISCORD : previous.channel().platform() : input.platform();
+        if (previous != null && previous.channel().platform() != platform) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Платформу существующего канала изменить нельзя; добавьте новый канал");
+        }
+        String address = platform == Platform.TELEGRAM ? input.telegramChatId() : input.webhookUrl();
+        String unrelatedAddress = platform == Platform.TELEGRAM ? input.webhookUrl() : input.telegramChatId();
+        if (unrelatedAddress != null && !unrelatedAddress.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Адрес канала не соответствует выбранной платформе");
+        }
+        boolean replaceSecret = address != null && !address.isBlank();
+        String destination = replaceSecret || previous == null ? secrets.normalize(platform, address) : null;
+        String fingerprint = destination == null ? previous.fingerprint() : secrets.fingerprint(platform, destination);
         if (channels.stream().anyMatch(stored -> stored.fingerprint().equals(fingerprint)
                 && !stored.channel().id().equals(channelId))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Этот вебхук уже добавлен");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Этот адрес канала уже добавлен");
         }
-        String secret = webhook == null ? previous.secret() : secrets.encrypt(webhook);
+        String secret = destination == null ? previous.secret() : secrets.encrypt(platform, destination);
         Instant now = Instant.now();
         List<Slot> schedule = input.schedule() == null ? settings.schedule() : input.schedule();
         Instant next = settings.enabled() && input.enabled() ? WeeklySchedule.next(schedule, now) : null;
         Channel channel = new Channel(channelId == null ? UUID.randomUUID() : channelId, input.name().trim(),
-                input.enabled(), input.schedule(), previous == null ? 0 : previous.channel().revision() + 1, next);
+                input.enabled(), input.schedule(), previous == null ? 0 : previous.channel().revision() + 1, next, platform);
         if (previous == null) store.insertChannel(channel, secret, fingerprint);
         else {
             store.updateChannel(channel, secret, fingerprint);
@@ -96,13 +110,15 @@ public class PublicationService {
     /** Ручная проверка работает до включения графика и не меняет его состояние. */
     @Transactional
     public Delivery claimTest(UUID channelId, long revision, Instant now) {
-        Settings settings = store.settings(true);
+        store.settings(true);
         StoredChannel stored = requireChannel(store.channels(), channelId);
         checkRevision(revision, stored.channel().revision());
-        if (!secrets.configured()) unavailable();
+        if (!sender.configured(stored.channel().platform())) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Отправка в выбранную платформу не настроена на сервере");
+        }
         store.recover(now);
-        if ((settings.pausedUntil() != null && settings.pausedUntil().isAfter(now)) || store.testBlocked(channelId, now)) {
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Подождите перед повторной проверкой вебхука");
+        if (store.paused(stored.channel().platform(), now) || store.testBlocked(channelId, now)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Подождите перед повторной проверкой канала");
         }
         return store.claimTest(stored, now);
     }
@@ -111,18 +127,19 @@ public class PublicationService {
     @Transactional
     public boolean currentTest(Delivery delivery) {
         store.settings(true);
-        return store.channels().stream().anyMatch(stored -> stored.channel().id().equals(delivery.channelId())
+        return sender.configured(delivery.platform()) && !store.paused(delivery.platform(), Instant.now())
+                && store.channels().stream().anyMatch(stored -> stored.channel().id().equals(delivery.channelId())
                 && stored.channel().revision() == delivery.channelRevision());
     }
 
-    /** Сохраняет тест без автоматического повтора, учитывая общий лимит Discord. */
+    /** Сохраняет тест без автоматического повтора, учитывая лимит выбранной платформы. */
     @Transactional
     public TestResult finishTest(Delivery delivery, Outcome outcome, Instant now) {
         store.settings(true);
-        if (outcome.retryAt() != null) store.pauseUntil(outcome.retryAt());
+        if (outcome.retryAt() != null) store.pauseUntil(delivery.platform(), outcome.retryAt());
         String status = outcome.status().equals("RETRY") ? "FAILED" : outcome.status();
         String detail = outcome.status().equals("RETRY")
-                ? "Discord ограничил частоту отправки; попробуйте позже" : outcome.detail();
+                ? "Платформа ограничила частоту отправки; попробуйте позже" : outcome.detail();
         store.finish(delivery, new Outcome(status, "Тест: " + detail, outcome.messageId(), null), 0, now);
         return new TestResult(status, detail);
     }
@@ -132,11 +149,17 @@ public class PublicationService {
     public Delivery claim(Instant now) {
         Settings settings = store.settings(true);
         store.recover(now);
-        if (!secrets.configured() || !settings.enabled()
-                || (settings.pausedUntil() != null && settings.pausedUntil().isAfter(now))) return null;
-        Delivery retry = store.retry(now);
-        if (retry != null) return retry;
+        if (!secrets.configured() || !settings.enabled()) return null;
+        EnumSet<Platform> available = EnumSet.noneOf(Platform.class);
+        for (Platform platform : Platform.values()) {
+            if (sender.configured(platform) && !store.paused(platform, now)) available.add(platform);
+        }
+        for (Platform platform : available) {
+            Delivery retry = store.retry(now, platform);
+            if (retry != null) return retry;
+        }
         List<StoredChannel> dueChannels = store.channels().stream().filter(stored -> stored.channel().enabled()
+                && available.contains(stored.channel().platform())
                 && stored.channel().nextRunAt() != null && !stored.channel().nextRunAt().isAfter(now))
                 .sorted(Comparator.comparing(stored -> stored.channel().nextRunAt())).toList();
         for (StoredChannel due : dueChannels) {
@@ -153,7 +176,8 @@ public class PublicationService {
     @Transactional
     public boolean current(Delivery delivery) {
         Settings settings = store.settings(true);
-        return settings.enabled() && store.channels().stream().anyMatch(stored ->
+        return settings.enabled() && sender.configured(delivery.platform())
+                && store.channels().stream().anyMatch(stored ->
                 stored.channel().id().equals(delivery.channelId()) && stored.channel().enabled()
                 && stored.channel().revision() == delivery.channelRevision());
     }
@@ -162,7 +186,7 @@ public class PublicationService {
     @Transactional
     public void finish(Delivery delivery, Outcome outcome, int gameCount, Instant now) {
         store.settings(true);
-        if (outcome.retryAt() != null) store.pauseUntil(outcome.retryAt());
+        if (outcome.retryAt() != null) store.pauseUntil(delivery.platform(), outcome.retryAt());
         if (outcome.status().equals("RETRY") && (!current(delivery) || delivery.attempts() >= 3
                 || !outcome.retryAt().isBefore(delivery.scheduledAt().plusSeconds(900)))) {
             outcome = new Outcome("FAILED", "Повтор отложен за пределы окна или настройки изменены", null, null);
@@ -183,5 +207,5 @@ public class PublicationService {
         if (expected != actual) throw new ResponseStatusException(HttpStatus.CONFLICT, "Настройки уже изменены; обновите страницу");
     }
     /** Сообщает об отсутствующем ключе без раскрытия конфигурации. */
-    private static void unavailable() { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Не настроен ключ шифрования Discord"); }
+    private static void unavailable() { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Не настроено шифрование адресов каналов"); }
 }
