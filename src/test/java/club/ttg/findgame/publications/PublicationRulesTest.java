@@ -86,12 +86,15 @@ class PublicationRulesTest {
             String content = payload.path("content").asString();
             assertThat(content.length()).isLessThanOrEqualTo(2000);
             assertThat(content).startsWith("Ищете компанию для приключений? 🎲\n\n")
-                    .contains("игры с открытым набором на " + siteUrl.substring("https://".length()),
-                            "подробности каждой игры", "найти ещё больше вариантов");
+                    .contains("игры с открытым набором на " + siteUrl.substring("https://".length()));
+            assertThat(content.substring(content.lastIndexOf("\n\n")))
+                    .startsWith("\n\nХотите больше вариантов? ")
+                    .containsOnlyOnce("[полный список игр на сайте](" + siteUrl + "/games)")
+                    .endsWith("Будем рады каждому!");
             assertThat(payload.has("embeds")).isFalse();
             assertThat(payload.path("flags").asInt()).isEqualTo(4);
             assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
-            assertThat(content).doesNotContain("\n\n[Подробнее", "\n> ");
+            assertThat(content).doesNotContain("\n\n[Подробнее", "\n> ", "Подробнее на сайте");
             assertThat(content.lines().filter(line -> line.startsWith("Жанры: ")).count()).isEqualTo(8);
         }
         assertThat(digest.messages(List.of(), Platform.DISCORD)).isEmpty();
@@ -111,7 +114,7 @@ class PublicationRulesTest {
         String content = messages.getFirst().payload().get("content").toString();
         assertThat(content.length()).isLessThanOrEqualTo(2000);
         assertThat(messages.getFirst().gameCount()).isEqualTo(8);
-        assertThat(content).contains("\nЖанры: Детектив\n[Подробнее на сайте](")
+        assertThat(content).contains("\nЖанры: Детектив\n[Подробнее](")
                 .doesNotContain("Найдите мага", "\n> ", "\n\n[Подробнее");
     }
 

@@ -206,7 +206,7 @@ class PublicationIntegrationTest {
                 .startsWith("Ищете компанию для приключений? 🎲\n\n")
                 .contains("игры с открытым набором на new.ttg.club.")
                 .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
-                        "\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
+                        "\n[Подробнее](https://new.ttg.club/games/" + gameId + ")")
                 .doesNotContain("Загадка города", "Найдите пропавшего мага", "hidden.example", "attrs", "content", "\n> ");
     }
 
@@ -247,7 +247,10 @@ class PublicationIntegrationTest {
         verify(client).send(eq(WEBHOOK), argThat(payload -> {
             String content = payload.get("content").toString();
             assertThat(content.length()).isLessThanOrEqualTo(2000);
-            assertThat(content).doesNotContain("Герои", "расследуют", "\n> ");
+            assertThat(content).doesNotContain("Герои", "расследуют", "\n> ", "Подробнее на сайте");
+            assertThat(content.substring(content.lastIndexOf("\n\n")))
+                    .contains("[полный список игр на сайте](https://new.ttg.club/games)")
+                    .endsWith("Будем рады каждому!");
             for (GameEntry game : preview) {
                 assertThat(content).containsOnlyOnce(game.url());
             }
@@ -420,7 +423,9 @@ class PublicationIntegrationTest {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             Map<String, Object> payload = invocation.getArgument(1);
             assertThat(payload).containsEntry("parse_mode", "HTML").containsEntry("link_preview_options", Map.of("is_disabled", true));
-            assertThat(payload.get("text").toString()).contains("https://new.ttg.club/games/", "Подробнее на сайте");
+            assertThat(payload.get("text").toString()).contains("https://new.ttg.club/games/", ">Подробнее</a>",
+                    "<a href=\"https://new.ttg.club/games\">полный список игр на сайте</a>")
+                    .doesNotContain("Подробнее на сайте");
             return new Outcome("RETRY", "Лимит", null, now.plusSeconds(60));
         });
         new PublicationScheduler(service, digest, new PublicationSender(secrets, client, telegram)).publish(delivery);

@@ -78,7 +78,7 @@ class TelegramBotClientTest {
         }
     }
 
-    /** Подборка Telegram содержит восемь ссылок, экранирует HTML и полностью исключает описания. */
+    /** Подборка Telegram содержит восемь игр и ссылку на каталог, экранирует HTML и исключает описания. */
     @Test void telegramDigestContainsEightGamesWithoutDescriptions() {
         GameDigest digest = new GameDigest(mock(JdbcTemplate.class), "https://new.ttg.club");
         List<GameEntry> games = java.util.stream.IntStream.range(0, 8).mapToObj(index -> {
@@ -92,8 +92,12 @@ class TelegramBotClientTest {
         assertThat(payload).containsEntry("parse_mode", "HTML").containsEntry("link_preview_options", Map.of("is_disabled", true));
         String text = payload.get("text").toString();
         assertThat(text).startsWith("Ищете компанию для приключений? 🎲\n\n")
-                .contains("&#38;", "игры с открытым набором на new.ttg.club.", "подробности каждой игры", "найти ещё больше вариантов")
-                .doesNotContain("СЕКРЕТНОЕ ОПИСАНИЕ", "<blockquote>", "[Подробнее");
+                .contains("&#38;", "игры с открытым набором на new.ttg.club.", ">Подробнее</a>")
+                .doesNotContain("СЕКРЕТНОЕ ОПИСАНИЕ", "<blockquote>", "[Подробнее", "Подробнее на сайте");
+        assertThat(text.substring(text.lastIndexOf("\n\n")))
+                .startsWith("\n\nХотите больше вариантов? ")
+                .containsOnlyOnce("<a href=\"https://new.ttg.club/games\">полный список игр на сайте</a>")
+                .endsWith("Будем рады каждому!");
         assertThat(org.springframework.web.util.HtmlUtils.htmlUnescape(text.replaceAll("<[^>]*>", ""))).hasSizeLessThanOrEqualTo(4096);
         games.forEach(game -> assertThat(text).containsOnlyOnce(game.url()));
     }

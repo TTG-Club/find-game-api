@@ -35,8 +35,7 @@ public class GameDigest {
         this.siteUrl = "https://" + uri.getHost();
         this.introduction = "Ищете компанию для приключений? 🎲\n\n"
                 + "Собрали для вас игры с открытым набором на " + uri.getHost() + ". "
-                + "Это лишь часть объявлений: на сайте можно узнать подробности каждой игры и найти ещё больше вариантов. "
-                + "Выбирайте игру по душе и присоединяйтесь — будем рады каждому!";
+                + "Выбирайте приключение по душе и знакомьтесь с будущей командой!";
     }
 
     /** Чередует системы по кругам; внутри каждой сохраняет порядок каталога. */
@@ -90,9 +89,10 @@ public class GameDigest {
             content.append("\n\n");
             if (platform == Platform.TELEGRAM) {
                 content.append(HtmlUtils.htmlEscapeDecimal(gameDetails(game))).append("\n<a href=\"")
-                        .append(HtmlUtils.htmlEscapeDecimal(game.url())).append("\">Подробнее на сайте</a>");
+                        .append(HtmlUtils.htmlEscapeDecimal(game.url())).append("\">Подробнее</a>");
             } else content.append(gameBlock(game));
         }
+        content.append("\n\n").append(catalogueInvitation(platform));
         if (platform == Platform.TELEGRAM) {
             return List.of(new DigestMessage(Map.of("text", content.toString(), "parse_mode", "HTML",
                     "link_preview_options", Map.of("is_disabled", true)), selected.size()));
@@ -124,9 +124,20 @@ public class GameDigest {
                 DigestText.compact(game.genreSummary(), Math.min(MAX_GENRES_LENGTH, maximum)), "");
     }
 
-    /** Считает точную длину вступления и сведений об играх. */
+    /** Считает точную длину вступления, сведений об играх и приглашения в каталог. */
     private int baseLength(List<GameEntry> games) {
-        return introduction.length() + games.stream().mapToInt(game -> 2 + gameBlock(game).length()).sum();
+        return introduction.length() + games.stream().mapToInt(game -> 2 + gameBlock(game).length()).sum()
+                + 2 + catalogueInvitation(Platform.DISCORD).length();
+    }
+
+    /** Завершает подборку приглашением и ссылкой на полный каталог в формате платформы. */
+    private String catalogueInvitation(Platform platform) {
+        String catalogueUrl = siteUrl + "/games";
+        String catalogueLink = platform == Platform.TELEGRAM
+                ? "<a href=\"" + HtmlUtils.htmlEscapeDecimal(catalogueUrl) + "\">полный список игр на сайте</a>"
+                : "[полный список игр на сайте](" + catalogueUrl + ")";
+        return "Хотите больше вариантов? Загляните в " + catalogueLink
+                + " — там вас ждут другие приключения и новые знакомства. Будем рады каждому!";
     }
 
     /** Отключает карточки ссылок и упоминания для каждого сообщения. */
@@ -137,7 +148,7 @@ public class GameDigest {
 
     /** Показывает название, систему, места, жанры и ссылку без описания игры. */
     private static String gameBlock(GameEntry game) {
-        return gameDetails(game) + "\n[Подробнее на сайте](" + game.url() + ")";
+        return gameDetails(game) + "\n[Подробнее](" + game.url() + ")";
     }
 
     /** Даёт обеим платформам одинаковые сведения без описаний и разметки ссылок. */
