@@ -21,7 +21,7 @@ public class GameDigest {
     private static final int SUPPRESS_EMBEDS = 4;
     private final JdbcTemplate jdbc;
     private final String siteUrl;
-    private final String heading;
+    private final String introduction;
 
     /** Проверяет адрес сайта один раз при запуске. */
     public GameDigest(JdbcTemplate jdbc, @Value("${discord-publications.site-url}") String siteUrl) {
@@ -33,7 +33,10 @@ public class GameDigest {
             throw new IllegalArgumentException("DISCORD_PUBLICATION_SITE_URL должен быть HTTPS-адресом сайта без пути");
         }
         this.siteUrl = "https://" + uri.getHost();
-        this.heading = "Игры с открытым набором на сайте " + uri.getHost();
+        this.introduction = "Ищете компанию для приключений? 🎲\n\n"
+                + "Собрали для вас игры с открытым набором на " + uri.getHost() + ". "
+                + "Это лишь часть объявлений: на сайте можно узнать подробности каждой игры и найти ещё больше вариантов. "
+                + "Выбирайте игру по душе и присоединяйтесь — будем рады каждому!";
     }
 
     /** Чередует системы по кругам; внутри каждой сохраняет порядок каталога. */
@@ -82,7 +85,7 @@ public class GameDigest {
     List<DigestMessage> messages(List<GameEntry> games, Platform platform) {
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
-        StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(heading) : heading);
+        StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction);
         for (GameEntry game : selected) {
             content.append("\n\n");
             if (platform == Platform.TELEGRAM) {
@@ -121,9 +124,9 @@ public class GameDigest {
                 DigestText.compact(game.genreSummary(), Math.min(MAX_GENRES_LENGTH, maximum)), "");
     }
 
-    /** Считает точную длину заголовка и сведений об играх. */
+    /** Считает точную длину вступления и сведений об играх. */
     private int baseLength(List<GameEntry> games) {
-        return heading.length() + games.stream().mapToInt(game -> 2 + gameBlock(game).length()).sum();
+        return introduction.length() + games.stream().mapToInt(game -> 2 + gameBlock(game).length()).sum();
     }
 
     /** Отключает карточки ссылок и упоминания для каждого сообщения. */

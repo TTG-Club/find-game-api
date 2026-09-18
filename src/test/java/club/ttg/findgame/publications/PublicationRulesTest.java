@@ -85,7 +85,9 @@ class PublicationRulesTest {
             var payload = mapper.valueToTree(message.payload());
             String content = payload.path("content").asString();
             assertThat(content.length()).isLessThanOrEqualTo(2000);
-            assertThat(content).startsWith("Игры с открытым набором на сайте ");
+            assertThat(content).startsWith("Ищете компанию для приключений? 🎲\n\n")
+                    .contains("игры с открытым набором на " + siteUrl.substring("https://".length()),
+                            "подробности каждой игры", "найти ещё больше вариантов");
             assertThat(payload.has("embeds")).isFalse();
             assertThat(payload.path("flags").asInt()).isEqualTo(4);
             assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
@@ -142,7 +144,8 @@ class PublicationRulesTest {
                     assertThat(context).hasNotFailed();
                     GameEntry game = new GameEntry(UUID.randomUUID(), "Игра", "D&D", 1, 4, "https://new.ttg.club/games/example", "", "");
                     var message = context.getBean(GameDigest.class).messages(List.of(game), Platform.DISCORD).getFirst();
-                    assertThat(message.payload().get("content").toString()).startsWith("Игры с открытым набором на сайте new.ttg.club\n\n");
+                    assertThat(message.payload().get("content").toString()).startsWith("Ищете компанию для приключений? 🎲\n\n")
+                            .contains("игры с открытым набором на new.ttg.club.");
                 });
     }
 

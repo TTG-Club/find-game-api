@@ -91,7 +91,9 @@ class TelegramBotClientTest {
         Map<String, Object> payload = messages.getFirst().payload();
         assertThat(payload).containsEntry("parse_mode", "HTML").containsEntry("link_preview_options", Map.of("is_disabled", true));
         String text = payload.get("text").toString();
-        assertThat(text).contains("&#38;", "Игры с открытым набором на сайте new.ttg.club").doesNotContain("СЕКРЕТНОЕ ОПИСАНИЕ", "<blockquote>", "[Подробнее");
+        assertThat(text).startsWith("Ищете компанию для приключений? 🎲\n\n")
+                .contains("&#38;", "игры с открытым набором на new.ttg.club.", "подробности каждой игры", "найти ещё больше вариантов")
+                .doesNotContain("СЕКРЕТНОЕ ОПИСАНИЕ", "<blockquote>", "[Подробнее");
         assertThat(org.springframework.web.util.HtmlUtils.htmlUnescape(text.replaceAll("<[^>]*>", ""))).hasSizeLessThanOrEqualTo(4096);
         games.forEach(game -> assertThat(text).containsOnlyOnce(game.url()));
     }

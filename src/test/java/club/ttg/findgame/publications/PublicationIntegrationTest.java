@@ -203,7 +203,8 @@ class PublicationIntegrationTest {
         var payload = mapper.valueToTree(digest.messages(preview, Platform.DISCORD).getFirst().payload());
         assertThat(payload.has("embeds")).isFalse();
         assertThat(payload.path("content").asString())
-                .startsWith("Игры с открытым набором на сайте new.ttg.club\n\n")
+                .startsWith("Ищете компанию для приключений? 🎲\n\n")
+                .contains("игры с открытым набором на new.ttg.club.")
                 .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
                         "\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
                 .doesNotContain("Загадка города", "Найдите пропавшего мага", "hidden.example", "attrs", "content", "\n> ");
