@@ -168,7 +168,7 @@ class PublicationIntegrationTest {
         for (int index = 0; index < 4; index++) jdbc.update("insert into game_registrations values (?, ?, 'PENDING')", UUID.randomUUID(), full);
         jdbc.update("insert into game_registrations values (?, ?, 'REJECTED'), (?, ?, 'APPROVED')", UUID.randomUUID(), rare, UUID.randomUUID(), rare);
         List<GameEntry> selected = digest.preview();
-        assertThat(selected).hasSize(10);
+        assertThat(selected).hasSize(8);
         assertThat(selected.subList(0, 4)).extracting(GameEntry::id).contains(rare, customFirst, customSecond).doesNotContain(sameCustom);
         assertThat(selected).extracting(GameEntry::id).doesNotContain(privateGame, closed, draft, stopped, deleted, full);
         assertThat(selected.stream().filter(game -> game.id().equals(rare)).findFirst().orElseThrow().takenSeats()).isEqualTo(1);
@@ -198,11 +198,11 @@ class PublicationIntegrationTest {
         assertThat(payload.path("content").asString())
                 .startsWith("Игры с открытым набором на сайте new.ttg.club\n\n")
                 .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
-                        "\n> " + preview.getFirst().description() + "\n\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
+                        "\n> " + preview.getFirst().description() + "\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
                 .doesNotContain("hidden.example", "attrs", "content");
     }
 
-    /** Небольшой каталог публикуется без искусственного заполнения до десяти. */
+    /** Небольшой каталог публикуется без искусственного заполнения до восьми. */
     @Test void emptyAndSmallCatalogue() {
         assertThat(digest.preview()).isEmpty();
         game("DND", null, Instant.now(), "OPEN", "PUBLIC", false);
@@ -214,30 +214,37 @@ class PublicationIntegrationTest {
         assertThat(mapper.writeValueAsString(digest.messages(preview))).doesNotContain("Жанры:", "\\n> ");
     }
 
-    /** Частичный выпуск фиксируется без повтора, а 429 всё ещё ставит общую паузу. */
-    @Test void partialDigestPausesOtherChannelsWithoutReplayingPublishedParts() {
+    /** Полный выпуск с длинными описаниями уходит одним запросом и сохраняет все восемь игр. */
+    @Test void fullDigestIsPublishedOnceWithEightGames() {
         service.saveSettings(new SettingsInput(true, GLOBAL, 0));
         Channel channel = addChannel("Канал", null, WEBHOOK);
         Instant now = Instant.now();
-        Instant retryAt = now.plusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        for (int index = 0; index < 4; index++) {
+        for (int index = 0; index < 8; index++) {
             UUID gameId = game("DND", null, now.minusSeconds(index), "OPEN", "PUBLIC", false);
             jdbc.update("update games set description = ? where id = ?", "Герои " + "расследуют ".repeat(45) + "тайну.", gameId);
         }
         due(channel.id(), now.minusSeconds(1));
         Delivery delivery = service.claim(now);
-        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "111111111111111111", null),
-                new Outcome("RETRY", "Ограничение Discord", null, retryAt));
+        List<GameEntry> preview = digest.preview();
+        assertThat(preview).hasSize(8);
+        assertThat(preview.stream().filter(game -> game.description().isEmpty()).count()).isPositive();
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "111111111111111111", null));
         new PublicationScheduler(service, secrets, digest, client).publish(delivery);
         assertThat(service.history()).singleElement().satisfies(run -> {
-            assertThat(run.status()).isEqualTo("FAILED");
-            assertThat(run.detail()).contains("1/2 сообщений, 2 игр", "Автоповтора нет");
+            assertThat(run.status()).isEqualTo("SENT");
+            assertThat(run.detail()).isEqualTo("Опубликовано сообщений: 1");
             assertThat(run.messageId()).isEqualTo("111111111111111111");
-            assertThat(run.gameCount()).isEqualTo(4);
+            assertThat(run.gameCount()).isEqualTo(8);
         });
-        assertThat(service.overview().settings().pausedUntil()).isEqualTo(retryAt);
-        assertThat(service.claim(retryAt.plusSeconds(1))).isNull();
-        verify(client, times(2)).send(eq(WEBHOOK), anyMap());
+        verify(client).send(eq(WEBHOOK), argThat(payload -> {
+            String content = payload.get("content").toString();
+            assertThat(content.length()).isLessThanOrEqualTo(2000);
+            for (GameEntry game : preview) {
+                assertThat(content).containsOnlyOnce(game.url());
+                if (!game.description().isEmpty()) assertThat(content).contains("\n> " + game.description() + "\n[Подробнее");
+            }
+            return true;
+        }));
     }
 
     /** Исчерпание попыток не снимает общий лимит для остальных каналов. */

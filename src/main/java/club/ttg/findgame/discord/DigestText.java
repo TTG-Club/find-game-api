@@ -45,24 +45,36 @@ final class DigestText {
 
     /** Выбирает целые предложения; длинное первое допускается до жёсткого лимита. */
     private static String sentences(String text, int maximum) {
-        if (text.isBlank()) return "";
+        if (text.isBlank() || maximum < 2) return "";
         BreakIterator boundaries = BreakIterator.getSentenceInstance(Locale.forLanguageTag("ru"));
         boundaries.setText(text);
         String excerpt = "";
         for (int end = boundaries.next(); end != BreakIterator.DONE; end = boundaries.next()) {
             String candidate = text.substring(0, end).stripTrailing();
-            if (candidate.length() > maximum) break;
+            String shortened = markExcerpt(candidate, text);
+            if (shortened.length() > maximum) break;
             if (!SENTENCE_END.matcher(candidate).find() || ELLIPSIS_END.matcher(candidate).find()) continue;
             if (end < text.length() && (ABBREVIATION.matcher(candidate).find()
                     || (INITIAL.matcher(candidate).find() && Character.isUpperCase(text.codePointAt(end))))) continue;
-            if (candidate.length() > PREFERRED_DESCRIPTION_LENGTH) return excerpt.isEmpty() ? candidate : excerpt;
-            excerpt = candidate;
+            if (shortened.length() > PREFERRED_DESCRIPTION_LENGTH) return excerpt.isEmpty() ? shortened : excerpt;
+            excerpt = shortened;
         }
         if (!excerpt.isEmpty()) return excerpt;
         // Короткий текст без пунктуации сохраняем целиком, длинный не обрываем искусственной точкой.
         if (text.length() >= Math.min(PREFERRED_DESCRIPTION_LENGTH, maximum)
                 || ELLIPSIS_END.matcher(text).find()) return "";
         return text + ".";
+    }
+
+    /** Сокращает уже очищенное описание под оставшееся место, сохраняя целые предложения. */
+    static String fitDescription(String text, int maximum) {
+        return text.length() <= maximum ? text : sentences(text, maximum);
+    }
+
+    /** Многоточие показывает, что на сайте есть продолжение; полный текст не меняется. */
+    private static String markExcerpt(String excerpt, String source) {
+        if (excerpt.length() == source.length()) return excerpt;
+        return (excerpt.endsWith(".") ? excerpt.substring(0, excerpt.length() - 1) : excerpt) + "…";
     }
 
     /** Читает только отображаемые поля AST; адреса и прочие атрибуты игнорирует. */

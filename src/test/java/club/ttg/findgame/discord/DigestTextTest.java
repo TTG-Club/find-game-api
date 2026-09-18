@@ -49,32 +49,45 @@ class DigestTextTest {
     /** Сохраняет законченные предложения и не добавляет обрывок следующего. */
     @Test void excerptEndsAtSentenceBoundary() {
         assertThat(DigestText.description("Место, пропитанное печалью и злобой, призвало вас. Вам предстоит узнать, что случилось. Если победите чудовищ," + " долго".repeat(50), mapper, 600))
-                .isEqualTo("Место, пропитанное печалью и злобой, призвало вас. Вам предстоит узнать, что случилось.");
+                .isEqualTo("Место, пропитанное печалью и злобой, призвало вас. Вам предстоит узнать, что случилось…");
         assertThat(DigestText.description("Кто скрывается в городе? Найдите его! Незаконченная фраза", mapper, 600))
-                .isEqualTo("Кто скрывается в городе? Найдите его!");
-        assertThat(DigestText.description("Найдите мага. Иначе...", mapper, 600)).isEqualTo("Найдите мага.");
+                .isEqualTo("Кто скрывается в городе? Найдите его!…");
+        assertThat(DigestText.description("Найдите мага. Иначе...", mapper, 600)).isEqualTo("Найдите мага…");
         assertThat(DigestText.description("Продолжение следует…", mapper, 600)).isEmpty();
     }
 
     /** При отсутствии короткого предложения берёт первое целиком в пределах жёсткого лимита. */
     @Test void longFirstSentenceIsKeptWholeOrOmitted() {
         String first = "Героям предстоит " + "расследовать тайны ".repeat(15) + "города.";
-        assertThat(DigestText.description(first + " Затем начнётся новое приключение.", mapper, 600)).isEqualTo(first);
+        assertThat(DigestText.description(first + " Затем начнётся новое приключение.", mapper, 600))
+                .isEqualTo(first.substring(0, first.length() - 1) + "…");
         assertThat(DigestText.description("Расследуйте " + "тайны ".repeat(110) + "города.", mapper, 600)).isEmpty();
     }
 
     /** Точка в версии игры, сокращении или инициалах не считается концом предложения. */
     @Test void abbreviationsAndQuotesStayInsideSentences() {
         String first = "Игра D&D 5.5 проходит в г. " + "ОченьДалёком".repeat(16) + " городе.";
-        assertThat(DigestText.description(first + " Ждём вас.", mapper, 600)).isEqualTo(first);
+        assertThat(DigestText.description(first + " Ждём вас.", mapper, 600))
+                .isEqualTo(first.substring(0, first.length() - 1) + "…");
         assertThat(DigestText.description("Он сказал: «Найдите А. С. Пушкина». Дальше " + "тайны ".repeat(90), mapper, 600))
-                .isEqualTo("Он сказал: «Найдите А. С. Пушкина».");
+                .isEqualTo("Он сказал: «Найдите А. С. Пушкина»…");
     }
 
     /** Однобуквенное слово и сокращение в конце полного текста не стирают описание. */
     @Test void completeSentencesAreNotMistakenForInitials() {
         assertThat(DigestText.description("Вы и я. Впереди " + "приключения ".repeat(80), mapper, 600))
-                .isEqualTo("Вы и я.");
+                .isEqualTo("Вы и я…");
         assertThat(DigestText.description("Начало в 2026 г.", mapper, 600)).isEqualTo("Начало в 2026 г.");
+    }
+
+    /** При подгонке под общий лимит многоточие учитывается в длине и не обрывает фразу. */
+    @Test void descriptionFitsRemainingSpaceWithoutCuttingSentences() {
+        assertThat(DigestText.fitDescription("Найдите мага. Дальше приключения…", 13)).isEqualTo("Найдите мага…");
+        assertThat(DigestText.fitDescription("Найдите мага. Дальше приключения…", 11)).isEmpty();
+        assertThat(DigestText.fitDescription("Найдите мага…", 13)).isEqualTo("Найдите мага…");
+        assertThat(DigestText.fitDescription("Найдите мага.", 13)).isEqualTo("Найдите мага.");
+        assertThat(DigestText.fitDescription("Кто? Длинное продолжение", 4)).isEmpty();
+        assertThat(DigestText.fitDescription("Кто? Длинное продолжение", 5)).isEqualTo("Кто?…");
+        assertThat(DigestText.fitDescription("Найдите мага.", 0)).isEmpty();
     }
 }

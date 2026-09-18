@@ -76,11 +76,11 @@ class PublicationRulesTest {
         List<GameEntry> games = new ArrayList<>();
         for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(50) + "."));
         List<DigestMessage> messages = digest.messages(games);
-        assertThat(messages).hasSizeGreaterThan(1);
-        assertThat(messages.stream().mapToInt(DigestMessage::gameCount).sum()).isEqualTo(10);
+        assertThat(messages).hasSize(1);
+        assertThat(messages.getFirst().gameCount()).isEqualTo(8);
         String joined = messages.stream().map(message -> message.payload().get("content").toString()).collect(java.util.stream.Collectors.joining("\n"));
-        for (GameEntry game : games.subList(0, 10)) assertThat(joined).containsOnlyOnce(game.url());
-        for (GameEntry game : games.subList(10, 20)) assertThat(joined).doesNotContain(game.url());
+        for (GameEntry game : games.subList(0, 8)) assertThat(joined).containsOnlyOnce(game.url());
+        for (GameEntry game : games.subList(8, 20)) assertThat(joined).doesNotContain(game.url());
         for (DigestMessage message : messages) {
             var payload = mapper.valueToTree(message.payload());
             String content = payload.path("content").asString();
@@ -89,9 +89,45 @@ class PublicationRulesTest {
             assertThat(payload.has("embeds")).isFalse();
             assertThat(payload.path("flags").asInt()).isEqualTo(4);
             assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
-            assertThat(content.lines().filter(line -> line.startsWith("> ")).count()).isEqualTo(message.gameCount());
+            assertThat(content).doesNotContain("\n\n[Подробнее", "\n> ");
+            assertThat(content.lines().filter(line -> line.startsWith("Жанры: ")).count()).isEqualTo(8);
         }
         assertThat(digest.messages(List.of())).isEmpty();
+    }
+
+    /** Короткие описания сохраняются у всех восьми игр и не отделяются пустой строкой от ссылки. */
+    @Test void eightShortDescriptionsStayInOneMessage() {
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, "https://new.ttg.club");
+        List<GameEntry> games = new ArrayList<>();
+        for (int index = 0; index < 8; index++) {
+            UUID gameId = UUID.randomUUID();
+            games.add(new GameEntry(gameId, "Игра " + index, "D&D", 1, 4,
+                    "https://new.ttg.club/games/" + gameId, "Детектив", "Найдите мага…"));
+        }
+        List<DigestMessage> messages = digest.messages(games);
+        assertThat(messages).hasSize(1);
+        String content = messages.getFirst().payload().get("content").toString();
+        assertThat(content.length()).isLessThanOrEqualTo(2000);
+        assertThat(content.lines().filter(line -> line.equals("> Найдите мага…")).count()).isEqualTo(8);
+        assertThat(content).contains("\n> Найдите мага…\n[Подробнее на сайте](").doesNotContain("\n\n[Подробнее");
+    }
+
+    /** Пробелы и эмодзи возле границы сокращения не позволяют превысить общий лимит. */
+    @Test void unicodeAndWhitespaceRespectBudgetForEveryCatalogueSize() {
+        String siteUrl = "https://" + "a".repeat(56) + ".org";
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, siteUrl);
+        List<GameEntry> games = new ArrayList<>();
+        for (int count = 1; count <= 8; count++) {
+            UUID gameId = UUID.randomUUID();
+            games.add(new GameEntry(gameId, "🎲 Тайна ".repeat(20), "🎲 Система ".repeat(20), 14, 15,
+                    siteUrl + "/games/" + gameId, "🎲 Жанр ".repeat(30), "Найдите мага. " + "Долгое приключение ".repeat(20) + "начинается…"));
+            List<DigestMessage> messages = digest.messages(games);
+            assertThat(messages).hasSize(1);
+            assertThat(messages.getFirst().gameCount()).isEqualTo(count);
+            String content = messages.getFirst().payload().get("content").toString();
+            assertThat(content.length()).isLessThanOrEqualTo(2000);
+            for (GameEntry game : games) assertThat(content).containsOnlyOnce(game.url());
+        }
     }
 
     /** Адрес по умолчанию берётся из конфигурации приложения, включая поддомен нового сайта. */

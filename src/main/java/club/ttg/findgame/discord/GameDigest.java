@@ -16,7 +16,7 @@ import static club.ttg.findgame.discord.PublicationModels.*;
 /** Подборка разных систем из публичного каталога без приватных полей. */
 @Service
 public class GameDigest {
-    static final int MAX_GAMES = 10;
+    static final int MAX_GAMES = 8;
     static final int MAX_GENRES_LENGTH = 80;
     static final int MAX_DESCRIPTION_LENGTH = 600;
     private static final int MAX_MESSAGE_LENGTH = 2000;
@@ -42,7 +42,7 @@ public class GameDigest {
 
     /** Чередует системы по кругам; внутри каждой сохраняет порядок каталога. */
     public List<GameEntry> preview() {
-        return jdbc.query("""
+        List<GameEntry> selected = jdbc.query("""
                 with eligible as (
                     select games.id, games.title, games.game_system, games.custom_system,
                            systems.name as system_name, games.max_players, games.list_position_at,
@@ -80,25 +80,59 @@ public class GameDigest {
                     DigestText.compact(genres, MAX_GENRES_LENGTH),
                     DigestText.description(result.getString("description"), mapper, MAX_DESCRIPTION_LENGTH));
         }, MAX_GAMES);
+        return fit(selected);
     }
 
-    /** Делит подборку по границам игр на обычные сообщения до 2000 символов. */
+    /** Собирает всю подборку в одно обычное сообщение до 2000 символов. */
     List<DigestMessage> messages(List<GameEntry> games) {
-        List<DigestMessage> messages = new ArrayList<>();
+        List<GameEntry> selected = fit(games);
+        if (selected.isEmpty()) return List.of();
         StringBuilder content = new StringBuilder(heading);
-        int gameCount = 0;
-        for (GameEntry game : games.stream().limit(MAX_GAMES).toList()) {
-            String block = compact(game.title(), 70) + "\n" + gameDetails(game);
-            if (gameCount > 0 && content.length() + 2 + block.length() > MAX_MESSAGE_LENGTH) {
-                messages.add(message(content.toString(), gameCount));
-                content = new StringBuilder(heading);
-                gameCount = 0;
-            }
-            content.append("\n\n").append(block);
-            gameCount++;
+        for (GameEntry game : selected) content.append("\n\n").append(gameBlock(game, game.description()));
+        return List.of(message(content.toString(), selected.size()));
+    }
+
+    /** Сначала резервирует сведения и ссылки всех игр, затем делит остаток между описаниями. */
+    private List<GameEntry> fit(List<GameEntry> games) {
+        List<GameEntry> selected = games.stream().limit(MAX_GAMES)
+                .map(game -> fitFields(game, MAX_GENRES_LENGTH)).toList();
+        if (selected.isEmpty()) return selected;
+        if (baseLength(selected) > MAX_MESSAGE_LENGTH) {
+            int fieldsLength = selected.stream().mapToInt(game ->
+                    game.title().length() + game.system().length() + game.genreSummary().length()).sum();
+            int remaining = MAX_MESSAGE_LENGTH - (baseLength(selected) - fieldsLength);
+            // У каждой игры три переменных поля: название, система и жанры.
+            int fieldLength = remaining / (3 * selected.size());
+            if (fieldLength < 2) throw new IllegalArgumentException("Ссылки подборки превышают лимит Discord");
+            selected = selected.stream().map(game -> fitFields(game, fieldLength)).toList();
         }
-        if (gameCount > 0) messages.add(message(content.toString(), gameCount));
-        return List.copyOf(messages);
+        int remaining = MAX_MESSAGE_LENGTH - baseLength(selected);
+        int descriptions = (int) selected.stream().filter(game -> !game.description().isBlank()).count();
+        List<GameEntry> fitted = new ArrayList<>();
+        for (GameEntry game : selected) {
+            String description = "";
+            if (!game.description().isBlank()) {
+                description = DigestText.fitDescription(game.description(), remaining / descriptions - 3);
+                descriptions--;
+                if (!description.isEmpty()) remaining -= description.length() + 3;
+            }
+            fitted.add(new GameEntry(game.id(), game.title(), game.system(), game.takenSeats(), game.maxPlayers(),
+                    game.url(), game.genreSummary(), description));
+        }
+        return List.copyOf(fitted);
+    }
+
+    /** Ограничивает пользовательские поля, сохраняя число мест и полную ссылку. */
+    private static GameEntry fitFields(GameEntry game, int maximum) {
+        return new GameEntry(game.id(), compact(game.title(), Math.min(70, maximum)),
+                compact(game.system(), Math.min(35, maximum)), game.takenSeats(), game.maxPlayers(), game.url(),
+                DigestText.compact(game.genreSummary(), Math.min(MAX_GENRES_LENGTH, maximum)),
+                DigestText.fitDescription(game.description(), MAX_DESCRIPTION_LENGTH));
+    }
+
+    /** Считает точную длину заголовка и обязательных сведений без описаний. */
+    private int baseLength(List<GameEntry> games) {
+        return heading.length() + games.stream().mapToInt(game -> 2 + gameBlock(game, "").length()).sum();
     }
 
     /** Отключает карточки ссылок и упоминания для каждого сообщения. */
@@ -108,14 +142,12 @@ public class GameDigest {
     }
 
     /** Дополняет число участников жанрами и коротким текстом; пустые строки не публикует. */
-    private static String gameDetails(GameEntry game) {
-        String genres = DigestText.compact(game.genreSummary(), MAX_GENRES_LENGTH);
-        String description = DigestText.compact(game.description(), MAX_DESCRIPTION_LENGTH);
-        return compact(game.system(), 35) + " · Занято " + game.takenSeats() + "/" + game.maxPlayers()
+    private static String gameBlock(GameEntry game, String description) {
+        return game.title() + "\n" + game.system() + " · Занято " + game.takenSeats() + "/" + game.maxPlayers()
                 + " · Свободно " + (game.maxPlayers() - game.takenSeats())
-                + (genres.isBlank() ? "" : "\nЖанры: " + genres)
+                + (game.genreSummary().isBlank() ? "" : "\nЖанры: " + game.genreSummary())
                 + (description.isBlank() ? "" : "\n> " + description)
-                + "\n\n[Подробнее на сайте](" + game.url() + ")";
+                + "\n[Подробнее на сайте](" + game.url() + ")";
     }
 
     /** Убирает разметку и управляющие символы из пользовательских названий. */
