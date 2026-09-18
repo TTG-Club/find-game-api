@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -73,13 +74,15 @@ public class GameRegistrationController {
     }
 
     @GetMapping("/me")
-    @Operation(summary = "Получить свою заявку")
-    public GameRegistrationResponse findOwn(
+    @Operation(summary = "Получить свою заявку", description = "Если заявки нет, возвращает 204 без тела. Недоступная игра возвращает 404.")
+    public ResponseEntity<GameRegistrationResponse> findOwn(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
             @RequestParam(required = false) UUID inviteCode
     ) {
-        return service.findOwn(userId(jwt), gameId, inviteCode);
+        return service.findOwn(userId(jwt), gameId, inviteCode)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @DeleteMapping("/me")

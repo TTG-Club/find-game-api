@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.Map;
 import java.util.function.Function;
@@ -260,17 +261,16 @@ public class GameRegistrationService {
      * @param playerId Игрок из токена.
      * @param gameId Игра.
      * @param inviteCode Код приглашения из адреса страницы.
-     * @return Заявка игрока.
+     * @return Заявка игрока или пустой результат, если он ещё не подавал заявку.
      */
     @Transactional(readOnly = true)
-    public GameRegistrationResponse findOwn(UUID playerId, UUID gameId, UUID inviteCode) {
+    public Optional<GameRegistrationResponse> findOwn(UUID playerId, UUID gameId, UUID inviteCode) {
         Game game = gameRepository.findByIdAndDeletedAtIsNull(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         requireVisible(game, inviteCode);
 
         return registrationRepository.findByGameIdAndPlayerId(gameId, playerId)
-                .map(GameRegistrationService::toResponse)
-                .orElseThrow(() -> new SessionRegistrationNotFoundException(gameId));
+                .map(GameRegistrationService::toResponse);
     }
 
     /**

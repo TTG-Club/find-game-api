@@ -2,7 +2,9 @@ package club.ttg.findgame.registration;
 
 import club.ttg.findgame.common.ApiExceptionHandler;
 import club.ttg.findgame.config.SecurityConfiguration;
+import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.registration.api.GameParticipantResponse;
+import club.ttg.findgame.registration.api.GameRegistrationResponse;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
@@ -17,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.Mockito.*;
@@ -29,6 +32,58 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class GameRegistrationControllerSecurityTest {
     @Autowired private MockMvc mockMvc;
     @MockitoBean private GameRegistrationService service;
+
+    /** Отсутствие заявки не является ошибкой при просмотре доступной игры. */
+    @Test
+    void missingOwnRegistrationReturnsNoContent() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        when(service.findOwn(playerId, gameId, null)).thenReturn(Optional.empty());
+        mockMvc.perform(get("/api/v1/games/{gameId}/registrations/me", gameId)
+                        .header("Authorization", "Bearer " + token(playerId)))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        verify(service).findOwn(playerId, gameId, null);
+    }
+
+    /** Чтение заявки использует игрока из JWT и сохраняет код приглашения. */
+    @Test
+    void existingOwnRegistrationUsesJwtAndInviteCode() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID inviteCode = UUID.randomUUID();
+        UUID registrationId = UUID.randomUUID();
+        when(service.findOwn(playerId, gameId, inviteCode)).thenReturn(Optional.of(
+                new GameRegistrationResponse(registrationId, gameId, playerId, null, "Следопыт",
+                        RegistrationStatus.PENDING, null, Instant.now(), Instant.now())));
+        mockMvc.perform(get("/api/v1/games/{gameId}/registrations/me", gameId)
+                        .param("inviteCode", inviteCode.toString())
+                        .header("Authorization", "Bearer " + token(playerId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(registrationId.toString()))
+                .andExpect(jsonPath("$.playerId").value(playerId.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        verify(service).findOwn(playerId, gameId, inviteCode);
+    }
+
+    /** Недоступную игру нельзя выдать за доступную игру без заявки. */
+    @Test
+    void unavailableGameStillReturnsNotFound() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        when(service.findOwn(playerId, gameId, null)).thenThrow(new GameNotFoundException(gameId));
+        mockMvc.perform(get("/api/v1/games/{gameId}/registrations/me", gameId)
+                        .header("Authorization", "Bearer " + token(playerId)))
+                .andExpect(status().isNotFound());
+    }
+
+    /** Пустой успешный ответ не отменяет обязательную авторизацию. */
+    @Test
+    void guestCannotReadOwnRegistration() throws Exception {
+        mockMvc.perform(get("/api/v1/games/{gameId}/registrations/me", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(service);
+    }
 
     @Test
     void guestCannotReadParticipants() throws Exception {

@@ -1,6 +1,7 @@
 package club.ttg.findgame.registration;
 
 import club.ttg.findgame.game.Game;
+import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.notification.NotificationService;
@@ -15,6 +16,8 @@ import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,6 +34,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -57,6 +61,67 @@ class GameRegistrationServiceTest {
 
     @Mock
     private NotificationService notificationService;
+
+    /** До подачи заявки и после её отзыва чтение возвращает пустой результат. */
+    @Test
+    void missingOwnRegistrationIsEmpty() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId)).thenReturn(Optional.empty());
+
+        assertThat(service().findOwn(playerId, gameId, null)).isEmpty();
+    }
+
+    /** Уже поданная заявка сохраняет свой статус и принадлежность игроку. */
+    @ParameterizedTest
+    @EnumSource(RegistrationStatus.class)
+    void existingOwnRegistrationKeepsStatus(RegistrationStatus status) {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.of(registration(gameId, playerId, status)));
+
+        assertThat(service().findOwn(playerId, gameId, null)).hasValueSatisfying(response -> {
+            assertThat(response.playerId()).isEqualTo(playerId);
+            assertThat(response.status()).isEqualTo(status);
+        });
+    }
+
+    /** Удалённая или несуществующая игра по-прежнему недоступна. */
+    @Test
+    void missingGameDoesNotBecomeEmptyRegistration() {
+        UUID gameId = UUID.randomUUID();
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().findOwn(UUID.randomUUID(), gameId, null))
+                .isInstanceOf(GameNotFoundException.class);
+        verifyNoInteractions(registrationRepository);
+    }
+
+    /** Код приглашения проверяется до поиска заявки, даже когда её нет. */
+    @Test
+    void privateGameRequiresValidInviteBeforeReadingOwnRegistration() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID inviteCode = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(game.getVisibility()).thenReturn(GameVisibility.PRIVATE);
+        when(game.getInviteCode()).thenReturn(inviteCode);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().findOwn(playerId, gameId, null))
+                .isInstanceOf(GameNotFoundException.class);
+        assertThatThrownBy(() -> service().findOwn(playerId, gameId, UUID.randomUUID()))
+                .isInstanceOf(GameNotFoundException.class);
+        verifyNoInteractions(registrationRepository);
+
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId)).thenReturn(Optional.empty());
+        assertThat(service().findOwn(playerId, gameId, inviteCode)).isEmpty();
+    }
 
     @Test
     void playerAppliesToGameOnce() {
