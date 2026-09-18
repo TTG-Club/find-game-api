@@ -193,11 +193,12 @@ class PublicationIntegrationTest {
             assertThat(game.description()).isEqualTo("Загадка города Найдите пропавшего мага.");
             assertThat(game.takenSeats()).isEqualTo(1);
         });
-        var embed = mapper.valueToTree(digest.payload(preview)).path("embeds").get(0);
-        assertThat(embed.path("url").asText()).isEqualTo("https://new.ttg.club/games");
-        assertThat(embed.path("fields").get(0).path("value").asText())
+        var payload = mapper.valueToTree(digest.messages(preview).getFirst().payload());
+        assertThat(payload.has("embeds")).isFalse();
+        assertThat(payload.path("content").asString())
+                .startsWith("Игры с открытым набором на сайте new.ttg.club\n\n")
                 .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
-                        preview.getFirst().description(), "[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
+                        "\n> " + preview.getFirst().description() + "\n\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
                 .doesNotContain("hidden.example", "attrs", "content");
     }
 
@@ -210,7 +211,33 @@ class PublicationIntegrationTest {
             assertThat(game.genreSummary()).isEmpty();
             assertThat(game.description()).isEmpty();
         });
-        assertThat(mapper.writeValueAsString(digest.payload(preview))).doesNotContain("Жанры:");
+        assertThat(mapper.writeValueAsString(digest.messages(preview))).doesNotContain("Жанры:", "\\n> ");
+    }
+
+    /** Частичный выпуск фиксируется без повтора, а 429 всё ещё ставит общую паузу. */
+    @Test void partialDigestPausesOtherChannelsWithoutReplayingPublishedParts() {
+        service.saveSettings(new SettingsInput(true, GLOBAL, 0));
+        Channel channel = addChannel("Канал", null, WEBHOOK);
+        Instant now = Instant.now();
+        Instant retryAt = now.plusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        for (int index = 0; index < 4; index++) {
+            UUID gameId = game("DND", null, now.minusSeconds(index), "OPEN", "PUBLIC", false);
+            jdbc.update("update games set description = ? where id = ?", "Герои " + "расследуют ".repeat(45) + "тайну.", gameId);
+        }
+        due(channel.id(), now.minusSeconds(1));
+        Delivery delivery = service.claim(now);
+        when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "111111111111111111", null),
+                new Outcome("RETRY", "Ограничение Discord", null, retryAt));
+        new PublicationScheduler(service, secrets, digest, client).publish(delivery);
+        assertThat(service.history()).singleElement().satisfies(run -> {
+            assertThat(run.status()).isEqualTo("FAILED");
+            assertThat(run.detail()).contains("1/2 сообщений, 2 игр", "Автоповтора нет");
+            assertThat(run.messageId()).isEqualTo("111111111111111111");
+            assertThat(run.gameCount()).isEqualTo(4);
+        });
+        assertThat(service.overview().settings().pausedUntil()).isEqualTo(retryAt);
+        assertThat(service.claim(retryAt.plusSeconds(1))).isNull();
+        verify(client, times(2)).send(eq(WEBHOOK), anyMap());
     }
 
     /** Исчерпание попыток не снимает общий лимит для остальных каналов. */

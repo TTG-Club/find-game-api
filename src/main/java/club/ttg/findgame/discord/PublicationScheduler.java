@@ -46,7 +46,40 @@ public class PublicationScheduler {
         Outcome outcome;
         if (!service.current(delivery)) outcome = new Outcome("SKIPPED", "Настройки изменены", null, null);
         else if (games.isEmpty()) outcome = new Outcome("SKIPPED", "Нет игр с открытым набором", null, null);
-        else outcome = client.send(secrets.decrypt(delivery.secret()), digest.payload(games));
+        else outcome = sendMessages(delivery, digest.messages(games));
         service.finish(delivery, outcome, games.size(), Instant.now());
+    }
+
+    /** Отправляет части последовательно; после частичного успеха запрещает повтор всего выпуска. */
+    private Outcome sendMessages(Delivery delivery, List<DigestMessage> messages) {
+        String webhookUrl = secrets.decrypt(delivery.secret());
+        String firstMessageId = null;
+        int sentMessages = 0;
+        int sentGames = 0;
+        for (DigestMessage message : messages) {
+            Outcome outcome = sendNext(delivery, message, webhookUrl, sentMessages > 0);
+            if (!outcome.status().equals("SENT")) {
+                if (sentMessages == 0) return outcome;
+                String status = outcome.status().equals("UNKNOWN") ? "UNKNOWN" : "FAILED";
+                return new Outcome(status, "Частично: " + sentMessages + "/" + messages.size()
+                        + " сообщений, " + sentGames + " игр. " + outcome.detail() + ". Автоповтора нет.",
+                        firstMessageId, outcome.retryAt());
+            }
+            if (firstMessageId == null) firstMessageId = outcome.messageId();
+            sentMessages++;
+            sentGames += message.gameCount();
+        }
+        return new Outcome("SENT", "Опубликовано сообщений: " + sentMessages, firstMessageId, null);
+    }
+
+    /** Между частями проверяет отмену и настройки; не раскрывает секрет при неожиданной ошибке. */
+    private Outcome sendNext(Delivery delivery, DigestMessage message, String webhookUrl, boolean checkSettings) {
+        if (Thread.currentThread().isInterrupted()) return new Outcome("UNKNOWN", "Отправка прервана; проверьте канал", null, null);
+        try {
+            if (checkSettings && !service.current(delivery)) return new Outcome("SKIPPED", "Настройки изменены", null, null);
+            return client.send(webhookUrl, message.payload());
+        } catch (RuntimeException exception) {
+            return new Outcome("UNKNOWN", "Нет подтверждения доставки; проверьте канал", null, null);
+        }
     }
 }

@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -17,10 +18,13 @@ import static club.ttg.findgame.discord.PublicationModels.*;
 public class GameDigest {
     static final int MAX_GAMES = 10;
     static final int MAX_GENRES_LENGTH = 80;
-    static final int MAX_DESCRIPTION_LENGTH = 180;
+    static final int MAX_DESCRIPTION_LENGTH = 600;
+    private static final int MAX_MESSAGE_LENGTH = 2000;
+    private static final int SUPPRESS_EMBEDS = 4;
     private final JdbcTemplate jdbc;
     private final String siteUrl;
     private final ObjectMapper mapper;
+    private final String heading;
 
     /** Проверяет адрес сайта один раз при запуске. */
     public GameDigest(JdbcTemplate jdbc, ObjectMapper mapper, @Value("${discord-publications.site-url}") String siteUrl) {
@@ -33,6 +37,7 @@ public class GameDigest {
             throw new IllegalArgumentException("DISCORD_PUBLICATION_SITE_URL должен быть HTTPS-адресом сайта без пути");
         }
         this.siteUrl = "https://" + uri.getHost();
+        this.heading = "Игры с открытым набором на сайте " + uri.getHost();
     }
 
     /** Чередует системы по кругам; внутри каждой сохраняет порядок каталога. */
@@ -77,25 +82,40 @@ public class GameDigest {
         }, MAX_GAMES);
     }
 
-    /** Создаёт одно компактное сообщение в пределах лимита Discord в 6000 символов. */
-    Map<String, Object> payload(List<GameEntry> games) {
-        List<Map<String, Object>> fields = games.stream().limit(MAX_GAMES).map(game -> Map.<String, Object>of(
-                "name", compact(game.title(), 70),
-                "value", fieldValue(game),
-                "inline", false)).toList();
-        return Map.of("allowed_mentions", Map.of("parse", List.of()), "embeds", List.of(Map.of(
-                "title", "Игры с открытым набором", "url", siteUrl + "/games", "fields", fields)));
+    /** Делит подборку по границам игр на обычные сообщения до 2000 символов. */
+    List<DigestMessage> messages(List<GameEntry> games) {
+        List<DigestMessage> messages = new ArrayList<>();
+        StringBuilder content = new StringBuilder(heading);
+        int gameCount = 0;
+        for (GameEntry game : games.stream().limit(MAX_GAMES).toList()) {
+            String block = compact(game.title(), 70) + "\n" + gameDetails(game);
+            if (gameCount > 0 && content.length() + 2 + block.length() > MAX_MESSAGE_LENGTH) {
+                messages.add(message(content.toString(), gameCount));
+                content = new StringBuilder(heading);
+                gameCount = 0;
+            }
+            content.append("\n\n").append(block);
+            gameCount++;
+        }
+        if (gameCount > 0) messages.add(message(content.toString(), gameCount));
+        return List.copyOf(messages);
+    }
+
+    /** Отключает карточки ссылок и упоминания для каждого сообщения. */
+    private static DigestMessage message(String content, int gameCount) {
+        return new DigestMessage(Map.of("content", content, "flags", SUPPRESS_EMBEDS,
+                "allowed_mentions", Map.of("parse", List.of())), gameCount);
     }
 
     /** Дополняет число участников жанрами и коротким текстом; пустые строки не публикует. */
-    private static String fieldValue(GameEntry game) {
+    private static String gameDetails(GameEntry game) {
         String genres = DigestText.compact(game.genreSummary(), MAX_GENRES_LENGTH);
         String description = DigestText.compact(game.description(), MAX_DESCRIPTION_LENGTH);
         return compact(game.system(), 35) + " · Занято " + game.takenSeats() + "/" + game.maxPlayers()
                 + " · Свободно " + (game.maxPlayers() - game.takenSeats())
                 + (genres.isBlank() ? "" : "\nЖанры: " + genres)
-                + (description.isBlank() ? "" : "\n" + description)
-                + "\n[Подробнее на сайте](" + game.url() + ")";
+                + (description.isBlank() ? "" : "\n> " + description)
+                + "\n\n[Подробнее на сайте](" + game.url() + ")";
     }
 
     /** Убирает разметку и управляющие символы из пользовательских названий. */

@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Контракты настройки и безопасного просмотра публикаций. */
@@ -31,4 +32,5 @@ public final class PublicationModels {
     record Delivery(UUID runId, UUID channelId, long channelRevision, String secret,
                     Instant scheduledAt, int attempts) {}
     record Outcome(String status, String detail, String messageId, Instant retryAt) {}
+    record DigestMessage(Map<String, Object> payload, int gameCount) {}
 }

@@ -55,15 +55,15 @@ class PublicationRulesTest {
         Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1);
         GameEntry game = new GameEntry(UUID.randomUUID(), "Название", "D&D", 1, 4, "https://new.ttg.club/games/example", "Фэнтези", "Короткое описание");
         List<GameEntry> games = List.of(game);
-        Map<String, Object> payload = Map.of("embeds", List.of());
+        Map<String, Object> payload = Map.of("content", "Подборка");
         when(digest.preview()).thenReturn(games);
-        when(digest.payload(games)).thenReturn(payload);
+        when(digest.messages(games)).thenReturn(List.of(new DigestMessage(payload, 1)));
         when(service.current(delivery)).thenReturn(true);
         when(secrets.decrypt("encrypted")).thenReturn("validated-webhook");
         Outcome sent = new Outcome("SENT", "Опубликовано", "123456789012345678", null);
         when(client.send("validated-webhook", payload)).thenReturn(sent);
         scheduler.publish(delivery);
-        verify(service).finish(eq(delivery), eq(sent), eq(1), any());
+        verify(service).finish(eq(delivery), argThat(outcome -> outcome.status().equals("SENT") && outcome.messageId().equals(sent.messageId())), eq(1), any());
         verify(client).send("validated-webhook", payload);
         when(service.current(delivery)).thenReturn(false);
         scheduler.publish(delivery);
@@ -74,18 +74,24 @@ class PublicationRulesTest {
         String siteUrl = "https://" + "a".repeat(56) + ".org";
         GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, siteUrl);
         List<GameEntry> games = new ArrayList<>();
-        for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(100)));
-        var payload = mapper.valueToTree(digest.payload(games));
-        var embed = payload.path("embeds").get(0);
-        int characters = embed.path("title").asText().length();
-        for (var field : embed.path("fields")) {
-            characters += field.path("name").asText().length() + field.path("value").asText().length();
-            assertThat(field.path("name").asText().length()).isLessThanOrEqualTo(256);
-            assertThat(field.path("value").asText().length()).isLessThanOrEqualTo(1024);
+        for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(50) + "."));
+        List<DigestMessage> messages = digest.messages(games);
+        assertThat(messages).hasSizeGreaterThan(1);
+        assertThat(messages.stream().mapToInt(DigestMessage::gameCount).sum()).isEqualTo(10);
+        String joined = messages.stream().map(message -> message.payload().get("content").toString()).collect(java.util.stream.Collectors.joining("\n"));
+        for (GameEntry game : games.subList(0, 10)) assertThat(joined).containsOnlyOnce(game.url());
+        for (GameEntry game : games.subList(10, 20)) assertThat(joined).doesNotContain(game.url());
+        for (DigestMessage message : messages) {
+            var payload = mapper.valueToTree(message.payload());
+            String content = payload.path("content").asString();
+            assertThat(content.length()).isLessThanOrEqualTo(2000);
+            assertThat(content).startsWith("Игры с открытым набором на сайте ");
+            assertThat(payload.has("embeds")).isFalse();
+            assertThat(payload.path("flags").asInt()).isEqualTo(4);
+            assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
+            assertThat(content.lines().filter(line -> line.startsWith("> ")).count()).isEqualTo(message.gameCount());
         }
-        assertThat(characters).isLessThanOrEqualTo(6000);
-        assertThat(embed.path("fields").size()).isEqualTo(10);
-        assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
+        assertThat(digest.messages(List.of())).isEmpty();
     }
 
     /** Адрес по умолчанию берётся из конфигурации приложения, включая поддомен нового сайта. */
@@ -97,8 +103,9 @@ class PublicationRulesTest {
                 .withBean(GameDigest.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
-                    var embed = mapper.valueToTree(context.getBean(GameDigest.class).payload(List.of())).path("embeds").get(0);
-                    assertThat(embed.path("url").asText()).isEqualTo("https://new.ttg.club/games");
+                    GameEntry game = new GameEntry(UUID.randomUUID(), "Игра", "D&D", 1, 4, "https://new.ttg.club/games/example", "", "");
+                    var message = context.getBean(GameDigest.class).messages(List.of(game)).getFirst();
+                    assertThat(message.payload().get("content").toString()).startsWith("Игры с открытым набором на сайте new.ttg.club\n\n");
                 });
     }
 
