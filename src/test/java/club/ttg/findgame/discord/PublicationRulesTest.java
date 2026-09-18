@@ -1,6 +1,9 @@
 package club.ttg.findgame.discord;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.*;
@@ -50,7 +53,7 @@ class PublicationRulesTest {
         DiscordWebhookClient client = mock(DiscordWebhookClient.class);
         PublicationScheduler scheduler = new PublicationScheduler(service, secrets, digest, client);
         Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1);
-        GameEntry game = new GameEntry(UUID.randomUUID(), "Название", "D&D", 1, 4, "https://ttg.club/games/example");
+        GameEntry game = new GameEntry(UUID.randomUUID(), "Название", "D&D", 1, 4, "https://new.ttg.club/games/example", "Фэнтези", "Короткое описание");
         List<GameEntry> games = List.of(game);
         Map<String, Object> payload = Map.of("embeds", List.of());
         when(digest.preview()).thenReturn(games);
@@ -69,16 +72,34 @@ class PublicationRulesTest {
 
     @Test void maximumPayloadFitsAndDisablesMentions() {
         String siteUrl = "https://" + "a".repeat(56) + ".org";
-        GameDigest digest = new GameDigest(mock(org.springframework.jdbc.core.JdbcTemplate.class), siteUrl);
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, siteUrl);
         List<GameEntry> games = new ArrayList<>();
-        for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID()));
+        for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(100)));
         var payload = mapper.valueToTree(digest.payload(games));
         var embed = payload.path("embeds").get(0);
         int characters = embed.path("title").asText().length();
-        for (var field : embed.path("fields")) characters += field.path("name").asText().length() + field.path("value").asText().length();
+        for (var field : embed.path("fields")) {
+            characters += field.path("name").asText().length() + field.path("value").asText().length();
+            assertThat(field.path("name").asText().length()).isLessThanOrEqualTo(256);
+            assertThat(field.path("value").asText().length()).isLessThanOrEqualTo(1024);
+        }
         assertThat(characters).isLessThanOrEqualTo(6000);
-        assertThat(embed.path("fields").size()).isEqualTo(20);
+        assertThat(embed.path("fields").size()).isEqualTo(10);
         assertThat(payload.path("allowed_mentions").path("parse").isEmpty()).isTrue();
+    }
+
+    /** Адрес по умолчанию берётся из конфигурации приложения, включая поддомен нового сайта. */
+    @Test void defaultSiteUrlUsesNewWebsite() {
+        new ApplicationContextRunner()
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(GameDigest.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var embed = mapper.valueToTree(context.getBean(GameDigest.class).payload(List.of())).path("embeds").get(0);
+                    assertThat(embed.path("url").asText()).isEqualTo("https://new.ttg.club/games");
+                });
     }
 
     @Test void emptyCatalogueNeverCallsDiscord() {

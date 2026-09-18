@@ -36,7 +36,7 @@ class PublicationIntegrationTest {
         @Bean WebhookSecrets secrets() { return new WebhookSecrets("", "0123456789abcdef0123456789abcdef"); }
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
         @Bean PublicationService service(PublicationStore store, WebhookSecrets secrets) { return new PublicationService(store, secrets); }
-        @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://ttg.club"); }
+        @Bean GameDigest digest(JdbcTemplate jdbc, ObjectMapper mapper) { return new GameDigest(jdbc, mapper, "https://new.ttg.club"); }
         @Bean DiscordWebhookClient client() { return mock(DiscordWebhookClient.class); }
         @Bean PublicationTestSender testSender(PublicationService service, WebhookSecrets secrets, DiscordWebhookClient client) {
             return new PublicationTestSender(service, secrets, client);
@@ -46,6 +46,7 @@ class PublicationIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PublicationService service;
     @Autowired GameDigest digest;
+    @Autowired ObjectMapper mapper;
     @Autowired WebhookSecrets secrets;
     @Autowired DiscordWebhookClient client;
     @Autowired PublicationTestSender testSender;
@@ -60,6 +61,10 @@ class PublicationIntegrationTest {
         jdbc.execute("create table game_systems (code varchar primary key, name varchar)");
         jdbc.execute("create table games (id uuid primary key, title varchar, game_system varchar, custom_system varchar, max_players integer, list_position_at timestamp with time zone, status varchar, visibility varchar, deleted_at timestamp with time zone, recruitment_closed boolean)");
         jdbc.execute("create table game_registrations (id uuid primary key, game_id uuid, status varchar)");
+        jdbc.execute("alter table games add column description text default '' not null");
+        jdbc.execute("alter table games add column custom_genre varchar(100)");
+        jdbc.execute("create table genres (id uuid primary key, name varchar(100))");
+        jdbc.execute("create table game_genres (game_id uuid, genre_id uuid, primary key (game_id, genre_id))");
         jdbc.update("insert into game_systems values ('DND', 'D&D'), ('PATHFINDER', 'Pathfinder'), ('HOMEBREW', 'Своя система')");
     }
 
@@ -163,18 +168,49 @@ class PublicationIntegrationTest {
         for (int index = 0; index < 4; index++) jdbc.update("insert into game_registrations values (?, ?, 'PENDING')", UUID.randomUUID(), full);
         jdbc.update("insert into game_registrations values (?, ?, 'REJECTED'), (?, ?, 'APPROVED')", UUID.randomUUID(), rare, UUID.randomUUID(), rare);
         List<GameEntry> selected = digest.preview();
-        assertThat(selected).hasSize(20);
+        assertThat(selected).hasSize(10);
         assertThat(selected.subList(0, 4)).extracting(GameEntry::id).contains(rare, customFirst, customSecond).doesNotContain(sameCustom);
         assertThat(selected).extracting(GameEntry::id).doesNotContain(privateGame, closed, draft, stopped, deleted, full);
         assertThat(selected.stream().filter(game -> game.id().equals(rare)).findFirst().orElseThrow().takenSeats()).isEqualTo(1);
-        assertThat(selected).allSatisfy(game -> assertThat(game.url()).isEqualTo("https://ttg.club/games/" + game.id()));
+        assertThat(selected).allSatisfy(game -> assertThat(game.url()).isEqualTo("https://new.ttg.club/games/" + game.id()));
     }
 
-    /** Небольшой каталог публикуется без искусственного заполнения до двадцати. */
+    /** Жанры не умножают заявки, а предпросмотр и отправка содержат одинаковый публичный текст. */
+    @Test void genresAndDescriptionReachPayloadWithoutChangingSeats() {
+        UUID gameId = game("DND", null, Instant.now(), "OPEN", "PUBLIC", false);
+        UUID fantasy = UUID.randomUUID();
+        UUID detective = UUID.randomUUID();
+        jdbc.update("insert into genres values (?, 'Фэнтези'), (?, 'Детектив')", fantasy, detective);
+        jdbc.update("insert into game_genres values (?, ?), (?, ?)", gameId, fantasy, gameId, detective);
+        jdbc.update("insert into game_registrations values (?, ?, 'APPROVED'), (?, ?, 'REJECTED')", UUID.randomUUID(), gameId, UUID.randomUUID(), gameId);
+        jdbc.update("update games set custom_genre = ?, description = ? where id = ?", "Городские тайны", """
+                [{"type":"h","attrs":{"level":2},"content":["Загадка города"]},
+                 {"type":"link","attrs":{"href":"https://hidden.example"},"content":["Найдите пропавшего мага."]}]
+                """, gameId);
+        List<GameEntry> preview = digest.preview();
+        assertThat(preview).singleElement().satisfies(game -> {
+            assertThat(game.genreSummary()).isEqualTo("Детектив, Фэнтези, Городские тайны");
+            assertThat(game.description()).isEqualTo("Загадка города Найдите пропавшего мага.");
+            assertThat(game.takenSeats()).isEqualTo(1);
+        });
+        var embed = mapper.valueToTree(digest.payload(preview)).path("embeds").get(0);
+        assertThat(embed.path("url").asText()).isEqualTo("https://new.ttg.club/games");
+        assertThat(embed.path("fields").get(0).path("value").asText())
+                .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
+                        preview.getFirst().description(), "[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
+                .doesNotContain("hidden.example", "attrs", "content");
+    }
+
+    /** Небольшой каталог публикуется без искусственного заполнения до десяти. */
     @Test void emptyAndSmallCatalogue() {
         assertThat(digest.preview()).isEmpty();
         game("DND", null, Instant.now(), "OPEN", "PUBLIC", false);
-        assertThat(digest.preview()).hasSize(1);
+        List<GameEntry> preview = digest.preview();
+        assertThat(preview).singleElement().satisfies(game -> {
+            assertThat(game.genreSummary()).isEmpty();
+            assertThat(game.description()).isEmpty();
+        });
+        assertThat(mapper.writeValueAsString(digest.payload(preview))).doesNotContain("Жанры:");
     }
 
     /** Исчерпание попыток не снимает общий лимит для остальных каналов. */
@@ -298,7 +334,7 @@ class PublicationIntegrationTest {
     private void due(UUID channelId, Instant instant) { jdbc.update("update discord_publication_channels set next_run_at = ? where id = ?", Timestamp.from(instant), channelId); }
     private UUID game(String system, String customSystem, Instant position, String status, String visibility, boolean stopped) {
         UUID gameId = UUID.randomUUID();
-        jdbc.update("insert into games values (?, ?, ?, ?, 4, ?, ?, ?, null, ?)", gameId, "Игра " + gameId, system, customSystem, Timestamp.from(position), status, visibility, stopped);
+        jdbc.update("insert into games (id, title, game_system, custom_system, max_players, list_position_at, status, visibility, recruitment_closed) values (?, ?, ?, ?, 4, ?, ?, ?, ?)", gameId, "Игра " + gameId, system, customSystem, Timestamp.from(position), status, visibility, stopped);
         return gameId;
     }
 }
