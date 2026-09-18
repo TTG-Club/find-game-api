@@ -24,6 +24,7 @@ public final class PublicationModels {
                           long revision, Instant nextRunAt) {}
     public record Overview(Settings settings, List<Channel> channels, boolean configured, String timeZone) {}
     public record TestResult(String status, String detail) {}
+    /** Поле description возвращается пустым для совместимости с прежней схемой фронтенда. */
     public record GameEntry(UUID id, String title, String system, int takenSeats, int maxPlayers,
                             String url, String genreSummary, String description) {}
     public record Run(UUID id, String channelName, Instant scheduledAt, String status,

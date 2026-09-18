@@ -36,7 +36,7 @@ class PublicationIntegrationTest {
         @Bean WebhookSecrets secrets() { return new WebhookSecrets("", "0123456789abcdef0123456789abcdef"); }
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
         @Bean PublicationService service(PublicationStore store, WebhookSecrets secrets) { return new PublicationService(store, secrets); }
-        @Bean GameDigest digest(JdbcTemplate jdbc, ObjectMapper mapper) { return new GameDigest(jdbc, mapper, "https://new.ttg.club"); }
+        @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://new.ttg.club"); }
         @Bean DiscordWebhookClient client() { return mock(DiscordWebhookClient.class); }
         @Bean PublicationTestSender testSender(PublicationService service, WebhookSecrets secrets, DiscordWebhookClient client) {
             return new PublicationTestSender(service, secrets, client);
@@ -175,8 +175,8 @@ class PublicationIntegrationTest {
         assertThat(selected).allSatisfy(game -> assertThat(game.url()).isEqualTo("https://new.ttg.club/games/" + game.id()));
     }
 
-    /** Жанры не умножают заявки, а предпросмотр и отправка содержат одинаковый публичный текст. */
-    @Test void genresAndDescriptionReachPayloadWithoutChangingSeats() {
+    /** Жанры не умножают заявки; описание из базы не попадает ни в предпросмотр, ни в сообщение. */
+    @Test void genresReachPayloadWithoutDescriptionOrChangingSeats() {
         UUID gameId = game("DND", null, Instant.now(), "OPEN", "PUBLIC", false);
         UUID fantasy = UUID.randomUUID();
         UUID detective = UUID.randomUUID();
@@ -190,7 +190,7 @@ class PublicationIntegrationTest {
         List<GameEntry> preview = digest.preview();
         assertThat(preview).singleElement().satisfies(game -> {
             assertThat(game.genreSummary()).isEqualTo("Детектив, Фэнтези, Городские тайны");
-            assertThat(game.description()).isEqualTo("Загадка города Найдите пропавшего мага.");
+            assertThat(game.description()).isEmpty();
             assertThat(game.takenSeats()).isEqualTo(1);
         });
         var payload = mapper.valueToTree(digest.messages(preview).getFirst().payload());
@@ -198,8 +198,8 @@ class PublicationIntegrationTest {
         assertThat(payload.path("content").asString())
                 .startsWith("Игры с открытым набором на сайте new.ttg.club\n\n")
                 .contains("Занято 1/4 · Свободно 3", "Жанры: " + preview.getFirst().genreSummary(),
-                        "\n> " + preview.getFirst().description() + "\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
-                .doesNotContain("hidden.example", "attrs", "content");
+                        "\n[Подробнее на сайте](https://new.ttg.club/games/" + gameId + ")")
+                .doesNotContain("Загадка города", "Найдите пропавшего мага", "hidden.example", "attrs", "content", "\n> ");
     }
 
     /** Небольшой каталог публикуется без искусственного заполнения до восьми. */
@@ -214,7 +214,7 @@ class PublicationIntegrationTest {
         assertThat(mapper.writeValueAsString(digest.messages(preview))).doesNotContain("Жанры:", "\\n> ");
     }
 
-    /** Полный выпуск с длинными описаниями уходит одним запросом и сохраняет все восемь игр. */
+    /** Полный выпуск уходит одним запросом; даже длинные описания игр не публикуются. */
     @Test void fullDigestIsPublishedOnceWithEightGames() {
         service.saveSettings(new SettingsInput(true, GLOBAL, 0));
         Channel channel = addChannel("Канал", null, WEBHOOK);
@@ -227,7 +227,7 @@ class PublicationIntegrationTest {
         Delivery delivery = service.claim(now);
         List<GameEntry> preview = digest.preview();
         assertThat(preview).hasSize(8);
-        assertThat(preview.stream().filter(game -> game.description().isEmpty()).count()).isPositive();
+        assertThat(preview).allSatisfy(game -> assertThat(game.description()).isEmpty());
         when(client.send(eq(WEBHOOK), anyMap())).thenReturn(new Outcome("SENT", "Опубликовано", "111111111111111111", null));
         new PublicationScheduler(service, secrets, digest, client).publish(delivery);
         assertThat(service.history()).singleElement().satisfies(run -> {
@@ -239,9 +239,9 @@ class PublicationIntegrationTest {
         verify(client).send(eq(WEBHOOK), argThat(payload -> {
             String content = payload.get("content").toString();
             assertThat(content.length()).isLessThanOrEqualTo(2000);
+            assertThat(content).doesNotContain("Герои", "расследуют", "\n> ");
             for (GameEntry game : preview) {
                 assertThat(content).containsOnlyOnce(game.url());
-                if (!game.description().isEmpty()) assertThat(content).contains("\n> " + game.description() + "\n[Подробнее");
             }
             return true;
         }));

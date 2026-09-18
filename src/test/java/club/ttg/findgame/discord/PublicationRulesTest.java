@@ -72,7 +72,7 @@ class PublicationRulesTest {
 
     @Test void maximumPayloadFitsAndDisablesMentions() {
         String siteUrl = "https://" + "a".repeat(56) + ".org";
-        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, siteUrl);
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), siteUrl);
         List<GameEntry> games = new ArrayList<>();
         for (int index = 0; index < 20; index++) games.add(new GameEntry(UUID.randomUUID(), "*<@everyone>🎲".repeat(30), "[system]".repeat(20), Integer.MAX_VALUE - 1, Integer.MAX_VALUE, siteUrl + "/games/" + UUID.randomUUID(), "Жанр".repeat(100), "Описание 🎲 ".repeat(50) + "."));
         List<DigestMessage> messages = digest.messages(games);
@@ -95,9 +95,9 @@ class PublicationRulesTest {
         assertThat(digest.messages(List.of())).isEmpty();
     }
 
-    /** Короткие описания сохраняются у всех восьми игр и не отделяются пустой строкой от ссылки. */
-    @Test void eightShortDescriptionsStayInOneMessage() {
-        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, "https://new.ttg.club");
+    /** Даже короткие описания не публикуются, когда в сообщении для них достаточно места. */
+    @Test void eightGamesNeverPublishDescriptions() {
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), "https://new.ttg.club");
         List<GameEntry> games = new ArrayList<>();
         for (int index = 0; index < 8; index++) {
             UUID gameId = UUID.randomUUID();
@@ -108,14 +108,15 @@ class PublicationRulesTest {
         assertThat(messages).hasSize(1);
         String content = messages.getFirst().payload().get("content").toString();
         assertThat(content.length()).isLessThanOrEqualTo(2000);
-        assertThat(content.lines().filter(line -> line.equals("> Найдите мага…")).count()).isEqualTo(8);
-        assertThat(content).contains("\n> Найдите мага…\n[Подробнее на сайте](").doesNotContain("\n\n[Подробнее");
+        assertThat(messages.getFirst().gameCount()).isEqualTo(8);
+        assertThat(content).contains("\nЖанры: Детектив\n[Подробнее на сайте](")
+                .doesNotContain("Найдите мага", "\n> ", "\n\n[Подробнее");
     }
 
     /** Пробелы и эмодзи возле границы сокращения не позволяют превысить общий лимит. */
     @Test void unicodeAndWhitespaceRespectBudgetForEveryCatalogueSize() {
         String siteUrl = "https://" + "a".repeat(56) + ".org";
-        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), mapper, siteUrl);
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), siteUrl);
         List<GameEntry> games = new ArrayList<>();
         for (int count = 1; count <= 8; count++) {
             UUID gameId = UUID.randomUUID();
