@@ -11,7 +11,7 @@ import java.util.UUID;
 public final class PublicationModels {
     private PublicationModels() {}
 
-    public enum Platform { DISCORD, TELEGRAM }
+    public enum Platform { DISCORD, TELEGRAM, VK }
 
     public record Slot(@Min(1) @Max(7) int day,
                        @NotNull @Pattern(regexp = "(?:[01][0-9]|2[0-3]):[0-5][0-9]") String time) {}
@@ -20,12 +20,22 @@ public final class PublicationModels {
     public record ChannelInput(@NotBlank @Size(max = 100) String name, boolean enabled,
                                @Size(max = 512) String webhookUrl,
                                @Size(min = 1, max = 14) List<@NotNull @Valid Slot> schedule,
-                               @Min(0) long revision, @Size(max = 32) String telegramChatId, Platform platform) {}
+                               @Min(0) long revision, @Size(max = 32) String telegramChatId, Platform platform,
+                               @Size(max = 32) String vkGroupId) {
+        /** Возвращает адрес, введённый для указанной платформы. */
+        String address(Platform target) {
+            return switch (target) {
+                case DISCORD -> webhookUrl;
+                case TELEGRAM -> telegramChatId;
+                case VK -> vkGroupId;
+            };
+        }
+    }
     public record Settings(boolean enabled, List<Slot> schedule, long revision, Instant pausedUntil) {}
     public record Channel(UUID id, String name, boolean enabled, List<Slot> schedule,
                           long revision, Instant nextRunAt, Platform platform) {}
     public record Overview(Settings settings, List<Channel> channels, boolean configured, String timeZone,
-                           boolean telegramConfigured) {}
+                           boolean telegramConfigured, boolean vkConfigured, boolean vkGroupConfigured) {}
     public record TestResult(String status, String detail) {}
     /** Поле description возвращается пустым для совместимости с прежней схемой фронтенда. */
     public record GameEntry(UUID id, String title, String system, int takenSeats, int maxPlayers,

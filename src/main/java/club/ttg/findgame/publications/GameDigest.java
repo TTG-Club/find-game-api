@@ -80,24 +80,28 @@ public class GameDigest {
         return fit(selected);
     }
 
-    /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками. */
+    /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом. */
     List<DigestMessage> messages(List<GameEntry> games, Platform platform) {
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
         StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction);
         for (GameEntry game : selected) {
             content.append("\n\n");
-            if (platform == Platform.TELEGRAM) {
-                content.append(HtmlUtils.htmlEscapeDecimal(gameDetails(game))).append("\n<a href=\"")
+            switch (platform) {
+                case TELEGRAM -> content.append(HtmlUtils.htmlEscapeDecimal(gameDetails(game))).append("\n<a href=\"")
                         .append(HtmlUtils.htmlEscapeDecimal(game.url())).append("\">Подробнее</a>");
-            } else content.append(gameBlock(game));
+                // Запись VK не поддерживает разметку ссылок, но делает кликабельным любой адрес в тексте.
+                case VK -> content.append(withoutMentions(gameDetails(game))).append("\nПодробнее: ").append(game.url());
+                case DISCORD -> content.append(gameBlock(game));
+            }
         }
         content.append("\n\n").append(catalogueInvitation(platform));
-        if (platform == Platform.TELEGRAM) {
-            return List.of(new DigestMessage(Map.of("text", content.toString(), "parse_mode", "HTML",
-                    "link_preview_options", Map.of("is_disabled", true)), selected.size()));
-        }
-        return List.of(message(content.toString(), selected.size()));
+        return List.of(switch (platform) {
+            case TELEGRAM -> new DigestMessage(Map.of("text", content.toString(), "parse_mode", "HTML",
+                    "link_preview_options", Map.of("is_disabled", true)), selected.size());
+            case VK -> new DigestMessage(Map.of("message", content.toString()), selected.size());
+            case DISCORD -> message(content.toString(), selected.size());
+        });
     }
 
     /** Умещает сведения всех игр в одно сообщение, сохраняя полные ссылки и число мест. */
@@ -133,9 +137,11 @@ public class GameDigest {
     /** Завершает подборку приглашением и ссылкой на полный каталог в формате платформы. */
     private String catalogueInvitation(Platform platform) {
         String catalogueUrl = siteUrl + "/games";
-        String catalogueLink = platform == Platform.TELEGRAM
-                ? "<a href=\"" + HtmlUtils.htmlEscapeDecimal(catalogueUrl) + "\">полный список игр на сайте</a>"
-                : "[полный список игр на сайте](" + catalogueUrl + ")";
+        String catalogueLink = switch (platform) {
+            case TELEGRAM -> "<a href=\"" + HtmlUtils.htmlEscapeDecimal(catalogueUrl) + "\">полный список игр на сайте</a>";
+            case VK -> "полный список игр на сайте (" + catalogueUrl + ")";
+            case DISCORD -> "[полный список игр на сайте](" + catalogueUrl + ")";
+        };
         return "Хотите больше вариантов? Загляните в " + catalogueLink
                 + " — там вас ждут другие приключения и новые знакомства. Будем рады каждому!";
     }
@@ -151,11 +157,16 @@ public class GameDigest {
         return gameDetails(game) + "\n[Подробнее](" + game.url() + ")";
     }
 
-    /** Даёт обеим платформам одинаковые сведения без описаний и разметки ссылок. */
+    /** Даёт всем платформам одинаковые сведения без описаний и разметки ссылок. */
     private static String gameDetails(GameEntry game) {
         return game.title() + "\n" + game.system() + " · Занято " + game.takenSeats() + "/" + game.maxPlayers()
                 + " · Свободно " + (game.maxPlayers() - game.takenSeats())
                 + (game.genreSummary().isBlank() ? "" : "\nЖанры: " + game.genreSummary());
+    }
+
+    /** Разрывает упоминания VK вида @адрес невидимым символом; скобки и звёздочки упоминаний уже убраны. */
+    private static String withoutMentions(String text) {
+        return text.replace("@", "@\u2060");
     }
 
     /** Убирает разметку и управляющие символы из пользовательских названий. */

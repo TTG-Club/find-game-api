@@ -30,6 +30,32 @@ class PublicationSecretsTest {
         }
         assertThat(secrets.normalize(Platform.TELEGRAM, "  " + chatId + "  ")).isEqualTo(chatId);
     }
+    /** ID сообщества VK шифруется своим ключом, приводится к числу без минуса и не читается другой платформой. */
+    @Test void vkGroupIdsUseSeparateEncryptionAndKeyedFingerprints() {
+        PublicationSecrets secrets = new PublicationSecrets("", AUTHENTICATION_SECRET);
+        PublicationSecrets restarted = new PublicationSecrets(DEDICATED_KEY, AUTHENTICATION_SECRET);
+        String groupId = "212345678";
+        assertThat(secrets.normalize(Platform.VK, " -" + groupId + " ")).isEqualTo(groupId);
+        assertThat(secrets.normalize(Platform.VK, groupId)).isEqualTo(groupId);
+        for (String invalid : java.util.List.of("", "0", "-0", "012", "--1", "club212345678", "https://vk.com/club1", "1234567890123", "1 2")) {
+            assertThatThrownBy(() -> secrets.normalize(Platform.VK, invalid)).isInstanceOf(RuntimeException.class);
+        }
+        String encrypted = secrets.encrypt(Platform.VK, groupId);
+        assertThat(encrypted).startsWith("vk-v1:").doesNotContain(groupId);
+        assertThat(secrets.encrypt(Platform.VK, groupId)).isNotEqualTo(encrypted);
+        assertThat(restarted.decrypt(Platform.VK, encrypted)).isEqualTo(groupId);
+        assertThat(restarted.fingerprint(Platform.VK, groupId)).isEqualTo(secrets.fingerprint(Platform.VK, groupId))
+                .isNotEqualTo(secrets.fingerprint(Platform.TELEGRAM, groupId));
+        assertThatThrownBy(() -> secrets.decrypt(Platform.TELEGRAM, encrypted)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> secrets.decrypt(Platform.DISCORD, encrypted)).isInstanceOf(IllegalStateException.class);
+        String telegram = secrets.encrypt(Platform.TELEGRAM, "-1001234567890");
+        assertThatThrownBy(() -> secrets.decrypt(Platform.VK, telegram)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> secrets.decrypt(Platform.VK, "vk-v1:" + telegram.substring("telegram-v1:".length())))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> new PublicationSecrets("", "changed-authentication-secret-at-least-32-bytes").decrypt(Platform.VK, encrypted))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     // Независимые фикстуры: node:crypto hkdfSync + createCipheriv(aes-256-gcm), nonce 00..0b.
     private static final String DERIVED_FIXTURE = "hkdf-v1:AAECAwQFBgcICQoLbqDY3LG/wpS5MnPcUMxQbk6WFH40FZvkOUvFj3hYJICvz8oLZAQpNfJpy34MbjU+R1hreGPY1bxQConLQCYoEPLyZlq/SEwMqe+NVZdJRE6N4nhETmUDPANyMR62jdfAbYCtUogadkh49BClYBme3oa7OgvYpPRkba1Vgza7nSg=";
     private static final String LEGACY_FIXTURE = "AAECAwQFBgcICQoL4L9HInPHoNamESGGknG6IjcDxbXe7ebZuK6GY+JaZBzDxo6WeFIHywDp/bucjno3AsOv1Ybs7L/NmDwic+vSx+FVi7LyIXvNJ7rI9JA53VYelIZhz2S1IVazzgxNv+B3wGHaQLXSf7B+xX5WhFUXW5V+xIeUrfVkp/fcMRVa0tE=";

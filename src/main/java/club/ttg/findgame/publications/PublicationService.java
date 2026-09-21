@@ -28,7 +28,8 @@ public class PublicationService {
     public Overview overview() {
         Settings settings = store.settings(true);
         return new Overview(settings, store.channels().stream().map(StoredChannel::channel).toList(),
-                secrets.configured(), WeeklySchedule.ZONE.getId(), sender.configured(Platform.TELEGRAM));
+                secrets.configured(), WeeklySchedule.ZONE.getId(), sender.configured(Platform.TELEGRAM),
+                sender.configured(Platform.VK), !sender.defaultAddress(Platform.VK).isBlank());
     }
 
     /** Меняет общий график и пересчитывает только нужные каналы. */
@@ -70,12 +71,16 @@ public class PublicationService {
         if (previous != null && previous.channel().platform() != platform) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Платформу существующего канала изменить нельзя; добавьте новый канал");
         }
-        String address = platform == Platform.TELEGRAM ? input.telegramChatId() : input.webhookUrl();
-        String unrelatedAddress = platform == Platform.TELEGRAM ? input.webhookUrl() : input.telegramChatId();
-        if (unrelatedAddress != null && !unrelatedAddress.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Адрес канала не соответствует выбранной платформе");
+        String address = input.address(platform);
+        for (Platform other : Platform.values()) {
+            String unrelatedAddress = input.address(other);
+            if (other != platform && unrelatedAddress != null && !unrelatedAddress.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Адрес канала не соответствует выбранной платформе");
+            }
         }
         boolean replaceSecret = address != null && !address.isBlank();
+        // Новый канал без адреса берёт сообщество из VK_GROUP_ID, как новости core-api; ID запоминается при создании.
+        if (!replaceSecret && previous == null) address = sender.defaultAddress(platform);
         String destination = replaceSecret || previous == null ? secrets.normalize(platform, address) : null;
         String fingerprint = destination == null ? previous.fingerprint() : secrets.fingerprint(platform, destination);
         if (channels.stream().anyMatch(stored -> stored.fingerprint().equals(fingerprint)

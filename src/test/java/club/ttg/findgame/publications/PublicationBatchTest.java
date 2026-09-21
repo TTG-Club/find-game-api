@@ -17,7 +17,7 @@ class PublicationBatchTest {
     private final PublicationSecrets secrets = mock(PublicationSecrets.class);
     private final GameDigest digest = mock(GameDigest.class);
     private final DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-    private final PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class)));
+    private final PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)));
     private final Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
     private final List<DigestMessage> messages = List.of(
             new DigestMessage(Map.of("content", "Первая часть"), 2),

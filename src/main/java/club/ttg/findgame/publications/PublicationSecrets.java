@@ -26,8 +26,13 @@ public class PublicationSecrets {
     private final SecretKeySpec derivedKey;
     private final SecretKeySpec telegramKey;
     private final SecretKeySpec telegramFingerprintKey;
+    private final SecretKeySpec vkKey;
+    private final SecretKeySpec vkFingerprintKey;
     private static final String TELEGRAM_PREFIX = "telegram-v1:";
+    private static final String VK_PREFIX = "vk-v1:";
     private static final Pattern CHAT_ID = Pattern.compile("-[1-9][0-9]{0,15}");
+    /** ID сообщества VK: число, минус из owner_id допускается и отбрасывается. */
+    private static final Pattern GROUP_ID = Pattern.compile("-?[1-9][0-9]{0,11}");
     private final SecureRandom random = new SecureRandom();
 
     /** Использует секрет действующей авторизации; отдельный ключ остаётся необязательным. */
@@ -39,6 +44,8 @@ public class PublicationSecrets {
         byte[] source = authenticationSecret.getBytes(StandardCharsets.UTF_8);
         telegramKey = deriveKey(source, "ttg.find-game.telegram.chat-encryption.v1");
         telegramFingerprintKey = deriveKey(source, "ttg.find-game.telegram.chat-fingerprint.v1");
+        vkKey = deriveKey(source, "ttg.find-game.vk.group-encryption.v1");
+        vkFingerprintKey = deriveKey(source, "ttg.find-game.vk.group-fingerprint.v1");
     }
 
     /** Читает ранее поддерживаемый отдельный ключ без изменения формата сохранённых вебхуков. */
@@ -80,8 +87,15 @@ public class PublicationSecrets {
     /** Показывает готовность сервера без раскрытия ключа. */
     public boolean configured() { return derivedKey != null; }
 
-    /** Разрешает числовой ID Telegram или обычный Discord-вебхук без произвольного адреса. */
+    /** Разрешает числовой ID Telegram или VK либо обычный Discord-вебхук без произвольного адреса. */
     public String normalize(Platform platform, String address) {
+        if (platform == Platform.VK) {
+            String groupId = address == null ? "" : address.trim();
+            if (!GROUP_ID.matcher(groupId).matches()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Нужен числовой ID сообщества ВКонтакте или VK_GROUP_ID на сервере");
+            }
+            return groupId.startsWith("-") ? groupId.substring(1) : groupId;
+        }
         if (platform == Platform.TELEGRAM) {
             String chatId = address == null ? "" : address.trim();
             if (!CHAT_ID.matcher(chatId).matches() || Long.parseLong(chatId) < -4503599627370495L) {
@@ -98,9 +112,10 @@ public class PublicationSecrets {
     /** Создаёт отпечаток для запрета повторной настройки одного канала. */
     public String fingerprint(Platform platform, String address) {
         try {
-            if (platform == Platform.TELEGRAM) {
+            if (platform != Platform.DISCORD) {
+                SecretKeySpec key = platform == Platform.TELEGRAM ? telegramFingerprintKey : vkFingerprintKey;
                 Mac fingerprint = Mac.getInstance("HmacSHA256");
-                fingerprint.init(new SecretKeySpec(telegramFingerprintKey.getEncoded(), "HmacSHA256"));
+                fingerprint.init(new SecretKeySpec(key.getEncoded(), "HmacSHA256"));
                 return HexFormat.of().formatHex(fingerprint.doFinal(address.getBytes(StandardCharsets.UTF_8)));
             }
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -114,25 +129,35 @@ public class PublicationSecrets {
             byte[] nonce = new byte[12];
             random.nextBytes(nonce);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            SecretKeySpec encryptionKey = platform == Platform.TELEGRAM ? telegramKey : dedicatedKey == null ? derivedKey : dedicatedKey;
+            SecretKeySpec encryptionKey = switch (platform) {
+                case TELEGRAM -> telegramKey;
+                case VK -> vkKey;
+                case DISCORD -> dedicatedKey == null ? derivedKey : dedicatedKey;
+            };
             cipher.init(Cipher.ENCRYPT_MODE, encryptionKey, new GCMParameterSpec(128, nonce));
             byte[] encrypted = cipher.doFinal(address.getBytes(StandardCharsets.UTF_8));
             String envelope = Base64.getEncoder().encodeToString(ByteBuffer.allocate(nonce.length + encrypted.length)
                     .put(nonce).put(encrypted).array());
-            if (platform == Platform.TELEGRAM) return TELEGRAM_PREFIX + envelope;
-            return dedicatedKey == null ? DERIVED_PREFIX + envelope : envelope;
+            return switch (platform) {
+                case TELEGRAM -> TELEGRAM_PREFIX + envelope;
+                case VK -> VK_PREFIX + envelope;
+                case DISCORD -> dedicatedKey == null ? DERIVED_PREFIX + envelope : envelope;
+            };
         } catch (GeneralSecurityException exception) { throw new IllegalStateException("Не удалось зашифровать адрес канала"); }
     }
 
     /** Расшифровывает секрет только непосредственно перед отправкой. */
     public String decrypt(Platform platform, String secret) {
         try {
-            boolean telegram = platform == Platform.TELEGRAM;
-            if (telegram != secret.startsWith(TELEGRAM_PREFIX)) throw new IllegalStateException();
+            // Метка шифротекста привязывает его к платформе: адрес одного транспорта не уходит в другой.
+            boolean telegram = secret.startsWith(TELEGRAM_PREFIX);
+            boolean vk = secret.startsWith(VK_PREFIX);
+            if (telegram != (platform == Platform.TELEGRAM) || vk != (platform == Platform.VK)) throw new IllegalStateException();
             boolean derived = secret.startsWith(DERIVED_PREFIX);
-            SecretKeySpec decryptionKey = telegram ? telegramKey : derived ? derivedKey : dedicatedKey;
+            SecretKeySpec decryptionKey = telegram ? telegramKey : vk ? vkKey : derived ? derivedKey : dedicatedKey;
             if (decryptionKey == null) throw new IllegalStateException();
-            String envelope = telegram ? secret.substring(TELEGRAM_PREFIX.length()) : derived ? secret.substring(DERIVED_PREFIX.length()) : secret;
+            String envelope = telegram ? secret.substring(TELEGRAM_PREFIX.length()) : vk ? secret.substring(VK_PREFIX.length())
+                    : derived ? secret.substring(DERIVED_PREFIX.length()) : secret;
             ByteBuffer buffer = ByteBuffer.wrap(Base64.getDecoder().decode(envelope));
             byte[] nonce = new byte[12];
             buffer.get(nonce);

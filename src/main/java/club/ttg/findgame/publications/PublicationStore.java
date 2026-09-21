@@ -167,7 +167,13 @@ public class PublicationStore {
     }
 
     /** Выбирает имя столбца из закрытого списка, без пользовательского SQL. */
-    private static String pauseColumn(Platform platform) { return platform == Platform.TELEGRAM ? "telegram_paused_until" : "paused_until"; }
+    private static String pauseColumn(Platform platform) {
+        return switch (platform) {
+            case DISCORD -> "paused_until";
+            case TELEGRAM -> "telegram_paused_until";
+            case VK -> "vk_paused_until";
+        };
+    }
     /** Сохраняет код платформы в принятом нижнем регистре. */
     private static String platformName(Platform platform) { return platform.name().toLowerCase(Locale.ROOT); }
     /** Читает платформу, закреплённую за каналом или записью истории. */

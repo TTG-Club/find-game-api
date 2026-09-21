@@ -74,6 +74,7 @@ logbook:
       - reason
       - webhookUrl
       - telegramChatId
+      - vkGroupId
   write:
     max-body-size: 8192
   exclude:
@@ -93,3 +94,8 @@ discord-publications:
 # Тот же бот, что в core-api; ID каналов задаются через админку и шифруются в базе.
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}
+
+# Те же ключ и сообщество, что в core-api; ID из админки заменяет VK_GROUP_ID и шифруется в базе.
+vk:
+  access-token: ${VK_ACCESS_TOKEN:}
+  group-id: ${VK_GROUP_ID:}

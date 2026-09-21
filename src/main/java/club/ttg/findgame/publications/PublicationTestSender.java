@@ -16,6 +16,8 @@ public class PublicationTestSender {
     private static final Map<String, Object> TELEGRAM_MESSAGE = Map.of(
             "text", "✅ Тестовое сообщение TTG Club. Бот работает: сообщения из админки доходят в этот канал.",
             "link_preview_options", Map.of("is_disabled", true));
+    private static final Map<String, Object> VK_MESSAGE = Map.of(
+            "message", "✅ Тестовое сообщение TTG Club. Ключ сообщества работает: записи из админки публикуются на этой стене.");
     private final PublicationService service;
     private final PublicationSender sender;
 
@@ -30,7 +32,11 @@ public class PublicationTestSender {
         Outcome outcome;
         try {
             outcome = service.currentTest(delivery)
-                    ? sender.send(delivery, delivery.platform() == Platform.TELEGRAM ? TELEGRAM_MESSAGE : DISCORD_MESSAGE)
+                    ? sender.send(delivery, switch (delivery.platform()) {
+                        case DISCORD -> DISCORD_MESSAGE;
+                        case TELEGRAM -> TELEGRAM_MESSAGE;
+                        case VK -> VK_MESSAGE;
+                    })
                     : new Outcome("SKIPPED", "Канал изменён или удалён; обновите страницу", null, null);
         } catch (RuntimeException exception) {
             // Исключение может содержать URL: не передаём его в журнал или API.

@@ -82,7 +82,7 @@ class PublicationSecurityTest {
         }
         verifyNoInteractions(service, digest, testSender);
         PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "Telegram", true, null, 0, null, PublicationModels.Platform.TELEGRAM);
-        PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", true);
+        PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", true, false, false);
         when(service.saveChannel(isNull(), any())).thenReturn(overview);
         mvc.perform(post(path + "/channels").header("Authorization", token("ADMIN"))
                 .contentType("application/json").content("""
@@ -94,6 +94,27 @@ class PublicationSecurityTest {
                 .andExpect(jsonPath("$.telegramConfigured").value(true));
         verify(service).saveChannel(isNull(), argThat(input -> input.platform() == PublicationModels.Platform.TELEGRAM
                 && input.telegramChatId().equals("-1001234567890")));
+    }
+
+    /** Канал ВКонтакте принимается только от ADMIN; сохранённый ID сообщества не возвращается. */
+    @Test void vkChannelKeepsGroupIdPrivate() throws Exception {
+        String path = "/api/v1/admin/game-publications";
+        String body = """
+                {"name":"ВКонтакте","enabled":true,"revision":0,"platform":"VK","vkGroupId":"212345678"}
+                """;
+        mvc.perform(post(path + "/channels").header("Authorization", token("USER")).contentType("application/json").content(body))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(service);
+        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "ВКонтакте", true, null, 0, null, PublicationModels.Platform.VK);
+        PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", false, true, true);
+        when(service.saveChannel(isNull(), any())).thenReturn(overview);
+        mvc.perform(post(path + "/channels").header("Authorization", token("ADMIN")).contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.channels[0].platform").value("VK"))
+                .andExpect(jsonPath("$.channels[0].vkGroupId").doesNotExist())
+                .andExpect(jsonPath("$.vkConfigured").value(true));
+        verify(service).saveChannel(isNull(), argThat(input -> input.platform() == PublicationModels.Platform.VK
+                && input.vkGroupId().equals("212345678")));
     }
 
     /** Создаёт подписанную сессию с указанной ролью. */
