@@ -117,3 +117,5 @@ databaseChangeLog:
       file: db/changelog/changes/058-telegram-publications.sql
   - include:
       file: db/changelog/changes/059-vk-publications.sql
+  - include:
+      file: db/changelog/changes/060-publication-images.sql

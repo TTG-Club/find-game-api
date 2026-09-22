@@ -6,11 +6,15 @@ final class DigestText {
 
     /** Оставляет одну безопасную строку и не разрывает суррогатную пару при сокращении. */
     static String compact(String text, int maximum) {
-        String cleaned = plainText(text);
-        if (cleaned.length() <= maximum) return cleaned;
+        return limit(plainText(text), maximum);
+    }
+
+    /** Сокращает готовый текст до предела с многоточием, не разрывая суррогатную пару. */
+    static String limit(String text, int maximum) {
+        if (text.length() <= maximum) return text;
         int end = maximum - 1;
-        if (Character.isHighSurrogate(cleaned.charAt(end - 1))) end--;
-        return cleaned.substring(0, end).stripTrailing() + "…";
+        if (Character.isHighSurrogate(text.charAt(end - 1))) end--;
+        return text.substring(0, end).stripTrailing() + "…";
     }
 
     /** Убирает HTML, управляющие символы и разметку из названий. */

@@ -17,8 +17,9 @@ class PublicationBatchTest {
     private final PublicationSecrets secrets = mock(PublicationSecrets.class);
     private final GameDigest digest = mock(GameDigest.class);
     private final DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-    private final PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)));
-    private final Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
+    private final PublicationImages images = mock(PublicationImages.class);
+    private final PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)), images);
+    private final Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD, null);
     private final List<DigestMessage> messages = List.of(
             new DigestMessage(Map.of("content", "Первая часть"), 2),
             new DigestMessage(Map.of("content", "Вторая часть"), 1),
@@ -40,10 +41,10 @@ class PublicationBatchTest {
 
     /** Успех фиксируется только после всех частей; сохраняется ссылка на первую. */
     @Test void sendsAllPartsInOrder() {
-        when(client.send(anyString(), anyMap())).thenReturn(sent("111111111111111111"), sent("222222222222222222"), sent("333333333333333333"));
+        when(client.send(anyString(), anyMap(), isNull())).thenReturn(sent("111111111111111111"), sent("222222222222222222"), sent("333333333333333333"));
         scheduler.publish(delivery);
         var order = inOrder(client);
-        for (DigestMessage message : messages) order.verify(client).send("validated-webhook", message.payload());
+        for (DigestMessage message : messages) order.verify(client).send("validated-webhook", message.payload(), null);
         Outcome outcome = result();
         assertThat(outcome.status()).isEqualTo("SENT");
         assertThat(outcome.messageId()).isEqualTo("111111111111111111");
@@ -53,54 +54,54 @@ class PublicationBatchTest {
     /** 429 до первой части сохраняет прежний безопасный повтор всего выпуска. */
     @Test void firstPartRateLimitCanRetry() {
         Outcome retry = new Outcome("RETRY", "Лимит", null, Instant.now().plusSeconds(30));
-        when(client.send(anyString(), anyMap())).thenReturn(retry);
+        when(client.send(anyString(), anyMap(), isNull())).thenReturn(retry);
         scheduler.publish(delivery);
         assertThat(result()).isEqualTo(retry);
-        verify(client, times(1)).send(anyString(), anyMap());
+        verify(client, times(1)).send(anyString(), anyMap(), isNull());
     }
 
     /** Частичный выпуск не повторяется целиком, но ограничение Discord передаётся общей паузе. */
     @Test void rateLimitAfterSuccessNeverRetriesPublishedGames() {
         Instant retryAt = Instant.now().plusSeconds(30);
-        when(client.send(anyString(), anyMap())).thenReturn(sent("111111111111111111"), new Outcome("RETRY", "Лимит", null, retryAt));
+        when(client.send(anyString(), anyMap(), isNull())).thenReturn(sent("111111111111111111"), new Outcome("RETRY", "Лимит", null, retryAt));
         scheduler.publish(delivery);
         Outcome outcome = result();
         assertThat(outcome.status()).isEqualTo("FAILED");
         assertThat(outcome.retryAt()).isEqualTo(retryAt);
         assertThat(outcome.detail()).contains("1/3", "2", "Автоповтора нет");
-        verify(client, times(2)).send(anyString(), anyMap());
+        verify(client, times(2)).send(anyString(), anyMap(), isNull());
     }
 
     /** Смена настроек между частями останавливает следующую отправку. */
     @Test void changedSettingsStopRemainingMessages() {
         when(service.current(delivery)).thenReturn(true, false);
-        when(client.send(anyString(), anyMap())).thenReturn(sent("111111111111111111"));
+        when(client.send(anyString(), anyMap(), isNull())).thenReturn(sent("111111111111111111"));
         scheduler.publish(delivery);
         assertThat(result().detail()).contains("1/3", "Настройки изменены");
-        verify(client, times(1)).send(anyString(), anyMap());
+        verify(client, times(1)).send(anyString(), anyMap(), isNull());
     }
 
     /** Прерывание сохраняется, а уже подтверждённые части учитываются в безопасной ошибке. */
     @Test void interruptedBatchDoesNotSendNextPart() {
-        when(client.send(anyString(), anyMap())).thenAnswer(invocation -> {
+        when(client.send(anyString(), anyMap(), isNull())).thenAnswer(invocation -> {
             Thread.currentThread().interrupt();
             return sent("111111111111111111");
         });
         scheduler.publish(delivery);
         assertThat(Thread.currentThread().isInterrupted()).isTrue();
         assertThat(result().status()).isEqualTo("UNKNOWN");
-        verify(client, times(1)).send(anyString(), anyMap());
+        verify(client, times(1)).send(anyString(), anyMap(), isNull());
     }
 
     /** Неоднозначный исход второй части не маскируется успехом и не раскрывает вебхук. */
     @Test void networkFailureKeepsPartialOutcomeSafe() {
-        when(client.send(anyString(), anyMap())).thenReturn(sent("111111111111111111"))
+        when(client.send(anyString(), anyMap(), isNull())).thenReturn(sent("111111111111111111"))
                 .thenThrow(new IllegalStateException("validated-webhook"));
         scheduler.publish(delivery);
         Outcome outcome = result();
         assertThat(outcome.status()).isEqualTo("UNKNOWN");
         assertThat(outcome.detail()).contains("1/3").doesNotContain("validated-webhook");
-        verify(client, times(2)).send(anyString(), anyMap());
+        verify(client, times(2)).send(anyString(), anyMap(), isNull());
     }
 
     /** Извлекает итог выпуска и проверяет прежний смысл счётчика игр в подборке. */

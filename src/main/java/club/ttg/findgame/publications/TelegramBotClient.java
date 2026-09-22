@@ -40,17 +40,24 @@ public class TelegramBotClient {
         return token.matches("[1-9][0-9]{4,19}:[A-Za-z0-9_-]{30,200}");
     }
 
-    /** Передаёт ID в JSON, запрашивает одно сообщение и не повторяет неоднозначную доставку. */
-    Outcome send(String chatId, Map<String, Object> payload) {
+    /** Передаёт ID в теле запроса, отправляет одно сообщение (с картинкой — sendPhoto) и не повторяет неоднозначную доставку. */
+    Outcome send(String chatId, Map<String, Object> payload, ImageFile image) {
         if (!configured()) return new Outcome("FAILED", "Бот Telegram не настроен на сервере", null, null);
         try {
-            Map<String, Object> body = new HashMap<>(payload);
-            body.put("chat_id", chatId);
-            HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.telegram.org/bot" + token + "/sendMessage"))
-                    .timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            return interpret(response.statusCode(), response.body(), Instant.now());
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("https://api.telegram.org/bot" + token
+                    + (image == null ? "/sendMessage" : "/sendPhoto"))).timeout(Duration.ofSeconds(15));
+            if (image == null) {
+                Map<String, Object> body = new HashMap<>(payload);
+                body.put("chat_id", chatId);
+                builder.header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)));
+            } else {
+                MultipartBody body = new MultipartBody().field("chat_id", chatId);
+                payload.forEach((name, value) -> body.field(name, value instanceof String text ? text : mapper.writeValueAsString(value)));
+                builder.header("Content-Type", body.contentType()).POST(body.file("photo", image).publisher());
+            }
+            HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            return interpret(response.statusCode(), response.body(), Instant.now(), image != null);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return new Outcome("UNKNOWN", "Отправка прервана; проверьте канал Telegram", null, null);
@@ -59,8 +66,11 @@ public class TelegramBotClient {
         }
     }
 
+    /** Читает ответ на текстовое сообщение. */
+    Outcome interpret(int status, String body, Instant now) { return interpret(status, body, now, false); }
+
     /** Читает только подтверждение и лимит; чужое описание ошибки не попадает в журнал. */
-    Outcome interpret(int status, String body, Instant now) {
+    Outcome interpret(int status, String body, Instant now, boolean photo) {
         if (status >= 500) return new Outcome("UNKNOWN", "Ошибка Telegram; доставка не подтверждена", null, null);
         try {
             var response = mapper.readTree(body);
@@ -84,7 +94,9 @@ public class TelegramBotClient {
             }
             if (status == 401 || errorCode == 401) return new Outcome("FAILED", "Telegram отклонил токен бота; проверьте настройку сервера", null, null);
             if (status == 400 || status == 403 || errorCode == 400 || errorCode == 403) {
-                return new Outcome("FAILED", "Telegram отклонил отправку; проверьте ID чата и право бота публиковать сообщения", null, null);
+                return new Outcome("FAILED", photo
+                        ? "Telegram отклонил сообщение с картинкой; проверьте картинку, ID чата и право бота публиковать сообщения"
+                        : "Telegram отклонил отправку; проверьте ID чата и право бота публиковать сообщения", null, null);
             }
             if (status == 200) return new Outcome("UNKNOWN", "Telegram не подтвердил доставку; проверьте канал", null, null);
             return new Outcome("FAILED", "Telegram отклонил отправку (HTTP " + status + ")", null, null);

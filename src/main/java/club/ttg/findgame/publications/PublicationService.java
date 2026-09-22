@@ -47,14 +47,14 @@ public class PublicationService {
                 List<Slot> schedule = channel.schedule() == null ? input.schedule() : channel.schedule();
                 Instant next = input.enabled() && channel.enabled() ? WeeklySchedule.next(schedule, now) : null;
                 store.updateChannel(new Channel(channel.id(), channel.name(), channel.enabled(), channel.schedule(),
-                        channel.revision() + 1, next, channel.platform()), stored.secret(), stored.fingerprint());
+                        channel.revision() + 1, next, channel.platform(), channel.imageUrl()), stored.secret(), stored.fingerprint());
                 store.cancelRetries(channel.id(), now);
             }
         }
         return overview();
     }
 
-    /** Создаёт или изменяет канал; пустое поле оставляет прежний секрет. */
+    /** Создаёт или изменяет канал; пустое поле оставляет прежний секрет, отсутствие imageUrl — прежнюю картинку. */
     @Transactional
     public Overview saveChannel(UUID channelId, ChannelInput input) {
         Settings settings = store.settings(true);
@@ -88,11 +88,14 @@ public class PublicationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Этот адрес канала уже добавлен");
         }
         String secret = destination == null ? previous.secret() : secrets.encrypt(platform, destination);
+        // Прежние клиенты не знают о картинке и не передают поле: оно не должно стирать выбранную картинку.
+        String imageUrl = input.imageUrl() == null ? previous == null ? null : previous.channel().imageUrl()
+                : input.imageUrl().isBlank() ? null : PublicationImages.normalize(input.imageUrl());
         Instant now = Instant.now();
         List<Slot> schedule = input.schedule() == null ? settings.schedule() : input.schedule();
         Instant next = settings.enabled() && input.enabled() ? WeeklySchedule.next(schedule, now) : null;
         Channel channel = new Channel(channelId == null ? UUID.randomUUID() : channelId, input.name().trim(),
-                input.enabled(), input.schedule(), previous == null ? 0 : previous.channel().revision() + 1, next, platform);
+                input.enabled(), input.schedule(), previous == null ? 0 : previous.channel().revision() + 1, next, platform, imageUrl);
         if (previous == null) store.insertChannel(channel, secret, fingerprint);
         else {
             store.updateChannel(channel, secret, fingerprint);

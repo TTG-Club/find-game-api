@@ -51,8 +51,8 @@ class PublicationRulesTest {
         PublicationSecrets secrets = mock(PublicationSecrets.class);
         GameDigest digest = mock(GameDigest.class);
         DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-        PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)));
-        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
+        PublicationScheduler scheduler = new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)), mock(PublicationImages.class));
+        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD, null);
         GameEntry game = new GameEntry(UUID.randomUUID(), "Название", "D&D", 1, 4, "https://new.ttg.club/games/example", "Фэнтези", "Короткое описание");
         List<GameEntry> games = List.of(game);
         Map<String, Object> payload = Map.of("content", "Подборка");
@@ -61,10 +61,10 @@ class PublicationRulesTest {
         when(service.current(delivery)).thenReturn(true);
         when(secrets.decrypt(Platform.DISCORD, "encrypted")).thenReturn("validated-webhook");
         Outcome sent = new Outcome("SENT", "Опубликовано", "123456789012345678", null);
-        when(client.send("validated-webhook", payload)).thenReturn(sent);
+        when(client.send("validated-webhook", payload, null)).thenReturn(sent);
         scheduler.publish(delivery);
         verify(service).finish(eq(delivery), argThat(outcome -> outcome.status().equals("SENT") && outcome.messageId().equals(sent.messageId())), eq(1), any());
-        verify(client).send("validated-webhook", payload);
+        verify(client).send("validated-webhook", payload, null);
         when(service.current(delivery)).thenReturn(false);
         scheduler.publish(delivery);
         verifyNoMoreInteractions(client);
@@ -157,10 +157,10 @@ class PublicationRulesTest {
         PublicationSecrets secrets = mock(PublicationSecrets.class);
         GameDigest digest = mock(GameDigest.class);
         DiscordWebhookClient client = mock(DiscordWebhookClient.class);
-        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD);
+        Delivery delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", Instant.now(), 1, Platform.DISCORD, null);
         when(digest.preview()).thenReturn(List.of());
         when(service.current(delivery)).thenReturn(true);
-        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class))).publish(delivery);
+        new PublicationScheduler(service, digest, new PublicationSender(secrets, client, mock(TelegramBotClient.class), mock(VkWallClient.class)), mock(PublicationImages.class)).publish(delivery);
         verifyNoInteractions(client, secrets);
         verify(service).finish(eq(delivery), eq(new Outcome("SKIPPED", "Нет игр с открытым набором", null, null)), eq(0), any());
     }

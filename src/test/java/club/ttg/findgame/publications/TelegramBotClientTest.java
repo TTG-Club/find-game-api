@@ -31,7 +31,7 @@ class TelegramBotClientTest {
         when(response.body()).thenReturn("{\"ok\":true,\"result\":{\"message_id\":42}}");
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(response);
         TelegramBotClient client = new TelegramBotClient(mapper, TOKEN, http);
-        assertThat(client.send("-1001234567890", Map.of("text", "Проверка", "link_preview_options", Map.of("is_disabled", true))).status()).isEqualTo("SENT");
+        assertThat(client.send("-1001234567890", Map.of("text", "Проверка", "link_preview_options", Map.of("is_disabled", true)), null).status()).isEqualTo("SENT");
         ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
         verify(http, times(1)).send(request.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
         assertThat(request.getValue().uri().toString()).isEqualTo("https://api.telegram.org/bot" + TOKEN + "/sendMessage");
@@ -48,13 +48,13 @@ class TelegramBotClientTest {
         HttpClient http = mock(HttpClient.class);
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenThrow(new IOException(TOKEN + "/-1001234567890"));
         TelegramBotClient client = new TelegramBotClient(mapper, TOKEN, http);
-        Outcome outcome = client.send("-1001234567890", Map.of("text", "Проверка"));
+        Outcome outcome = client.send("-1001234567890", Map.of("text", "Проверка"), null);
         assertThat(outcome.status()).isEqualTo("UNKNOWN");
         assertThat(outcome.detail()).doesNotContain(TOKEN, "-1001234567890");
         verify(http, times(1)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
         TelegramBotClient unconfigured = new TelegramBotClient(mapper, "", http);
         assertThat(unconfigured.configured()).isFalse();
-        assertThat(unconfigured.send("-1001234567890", Map.of("text", "Проверка")).status()).isEqualTo("FAILED");
+        assertThat(unconfigured.send("-1001234567890", Map.of("text", "Проверка"), null).status()).isEqualTo("FAILED");
         verifyNoMoreInteractions(http);
     }
 

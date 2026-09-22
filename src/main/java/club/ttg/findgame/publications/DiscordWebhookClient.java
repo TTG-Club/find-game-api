@@ -1,6 +1,7 @@
 package club.ttg.findgame.publications;
 
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -15,17 +16,30 @@ import static club.ttg.findgame.publications.PublicationModels.*;
 @Component
 public class DiscordWebhookClient {
     private final ObjectMapper mapper;
-    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-            .followRedirects(HttpClient.Redirect.NEVER).build();
+    private final HttpClient client;
 
     /** Использует JSON-кодек приложения. */
-    public DiscordWebhookClient(ObjectMapper mapper) { this.mapper = mapper; }
+    @Autowired
+    public DiscordWebhookClient(ObjectMapper mapper) {
+        this(mapper, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NEVER).build());
+    }
+
+    /** Позволяет проверить настоящий HTTP-запрос без обращения к Discord. */
+    DiscordWebhookClient(ObjectMapper mapper, HttpClient client) { this.mapper = mapper; this.client = client; }
 
     /** Запрашивает подтверждение доставки; неоднозначный исход не повторяется автоматически. */
-    Outcome send(String webhookUrl, Map<String, Object> payload) {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(webhookUrl + "?wait=true"))
-                .timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload))).build();
+    Outcome send(String webhookUrl, Map<String, Object> payload, ImageFile image) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(webhookUrl + "?wait=true")).timeout(Duration.ofSeconds(15));
+        if (image == null) {
+            builder.header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload)));
+        } else {
+            // Текст и настройки идут частью payload_json, картинка — вложением под сообщением.
+            MultipartBody body = new MultipartBody().json("payload_json", mapper.writeValueAsString(payload)).file("files[0]", image);
+            builder.header("Content-Type", body.contentType()).POST(body.publisher());
+        }
+        HttpRequest request = builder.build();
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             return interpret(response.statusCode(), response.body(), Instant.now());

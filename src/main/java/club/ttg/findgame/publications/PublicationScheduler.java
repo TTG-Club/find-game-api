@@ -17,10 +17,11 @@ public class PublicationScheduler {
     private final PublicationService service;
     private final GameDigest digest;
     private final PublicationSender sender;
+    private final PublicationImages images;
 
     /** Собирает отправку из независимо проверяемых частей. */
-    public PublicationScheduler(PublicationService service, GameDigest digest, PublicationSender sender) {
-        this.service = service; this.digest = digest; this.sender = sender;
+    public PublicationScheduler(PublicationService service, GameDigest digest, PublicationSender sender, PublicationImages images) {
+        this.service = service; this.digest = digest; this.sender = sender; this.images = images;
     }
 
     /** Обрабатывает ограниченную порцию, не удерживая транзакцию во время HTTP. */
@@ -44,17 +45,36 @@ public class PublicationScheduler {
         Outcome outcome;
         if (!service.current(delivery)) outcome = new Outcome("SKIPPED", "Настройки изменены", null, null);
         else if (games.isEmpty()) outcome = new Outcome("SKIPPED", "Нет игр с открытым набором", null, null);
-        else outcome = sendMessages(delivery, digest.messages(games, delivery.platform()));
+        else outcome = sendDigest(delivery, games);
         service.finish(delivery, outcome, games.size(), Instant.now());
     }
 
+    /** Картинка дополняет подборку: без неё или при отказе платформы выпуск уходит как обычно, текстом. */
+    private Outcome sendDigest(Delivery delivery, List<GameEntry> games) {
+        String imageProblem = null;
+        if (delivery.imageUrl() != null) {
+            try {
+                ImageFile image = images.load(delivery.imageUrl());
+                Outcome outcome = sendMessages(delivery, digest.messages(games, delivery.platform(), true), image);
+                // Отказ до первой доставленной части: платформа ничего не опубликовала, и отправка без картинки не создаст дубль.
+                if (!outcome.status().equals("FAILED") || outcome.messageId() != null) return outcome;
+                imageProblem = outcome.detail();
+            } catch (PublicationImages.Unavailable exception) {
+                imageProblem = "Картинка недоступна: " + exception.getMessage();
+            }
+        }
+        Outcome outcome = sendMessages(delivery, digest.messages(games, delivery.platform()), null);
+        if (imageProblem == null || !outcome.status().equals("SENT")) return outcome;
+        return new Outcome("SENT", "Без картинки (" + imageProblem + "). " + outcome.detail(), outcome.messageId(), null);
+    }
+
     /** Отправляет части последовательно; после частичного успеха запрещает повтор всего выпуска. */
-    private Outcome sendMessages(Delivery delivery, List<DigestMessage> messages) {
+    private Outcome sendMessages(Delivery delivery, List<DigestMessage> messages, ImageFile image) {
         String firstMessageId = null;
         int sentMessages = 0;
         int sentGames = 0;
         for (DigestMessage message : messages) {
-            Outcome outcome = sendNext(delivery, message, sentMessages > 0);
+            Outcome outcome = sendNext(delivery, message, message.withImage() ? image : null, sentMessages > 0);
             if (!outcome.status().equals("SENT")) {
                 if (sentMessages == 0) return outcome;
                 String status = outcome.status().equals("UNKNOWN") ? "UNKNOWN" : "FAILED";
@@ -70,11 +90,11 @@ public class PublicationScheduler {
     }
 
     /** Между частями проверяет отмену и настройки; не раскрывает секрет при неожиданной ошибке. */
-    private Outcome sendNext(Delivery delivery, DigestMessage message, boolean checkSettings) {
+    private Outcome sendNext(Delivery delivery, DigestMessage message, ImageFile image, boolean checkSettings) {
         if (Thread.currentThread().isInterrupted()) return new Outcome("UNKNOWN", "Отправка прервана; проверьте канал", null, null);
         try {
             if (checkSettings && !service.current(delivery)) return new Outcome("SKIPPED", "Настройки изменены", null, null);
-            return sender.send(delivery, message.payload());
+            return sender.send(delivery, message.payload(), image);
         } catch (RuntimeException exception) {
             return new Outcome("UNKNOWN", "Нет подтверждения доставки; проверьте канал", null, null);
         }

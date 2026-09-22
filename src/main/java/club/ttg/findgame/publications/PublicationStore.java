@@ -16,6 +16,8 @@ import static club.ttg.findgame.publications.PublicationModels.*;
 /** Хранилище расписаний и журнала; HTTP выполняется вне транзакций. */
 @Repository
 public class PublicationStore {
+    /** Размер столбца detail журнала: составные пояснения сокращаются, а не роняют запись результата. */
+    private static final int MAX_DETAIL_LENGTH = 300;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
@@ -34,7 +36,8 @@ public class PublicationStore {
         return jdbc.query("select * from discord_publication_channels order by name, id", (result, rowNumber) ->
                 new StoredChannel(new Channel(result.getObject("id", UUID.class), result.getString("name"),
                         result.getBoolean("enabled"), slots(result.getString("schedule")), result.getLong("revision"),
-                        instant(result, "next_run_at"), platform(result)), result.getString("webhook_secret"), result.getString("webhook_fingerprint")));
+                        instant(result, "next_run_at"), platform(result), result.getString("image_url")),
+                        result.getString("webhook_secret"), result.getString("webhook_fingerprint")));
     }
 
     /** Сохраняет общие настройки под блокировкой. */
@@ -46,19 +49,19 @@ public class PublicationStore {
     /** Добавляет новый канал с уже зашифрованным секретом. */
     void insertChannel(Channel channel, String secret, String fingerprint) {
         jdbc.update("""
-                insert into discord_publication_channels (id, name, enabled, schedule, revision, next_run_at, webhook_secret, webhook_fingerprint, platform)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                insert into discord_publication_channels (id, name, enabled, schedule, revision, next_run_at, webhook_secret, webhook_fingerprint, platform, image_url)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, channel.id(), channel.name(), channel.enabled(), serialize(channel.schedule()), channel.revision(),
-                timestamp(channel.nextRunAt()), secret, fingerprint, platformName(channel.platform()));
+                timestamp(channel.nextRunAt()), secret, fingerprint, platformName(channel.platform()), channel.imageUrl());
     }
 
     /** Заменяет настройки существующего канала. */
     void updateChannel(Channel channel, String secret, String fingerprint) {
         jdbc.update("""
                 update discord_publication_channels set name = ?, enabled = ?, schedule = ?, revision = ?,
-                next_run_at = ?, webhook_secret = ?, webhook_fingerprint = ? where id = ?
+                next_run_at = ?, webhook_secret = ?, webhook_fingerprint = ?, image_url = ? where id = ?
                 """, channel.name(), channel.enabled(), serialize(channel.schedule()), channel.revision(),
-                timestamp(channel.nextRunAt()), secret, fingerprint, channel.id());
+                timestamp(channel.nextRunAt()), secret, fingerprint, channel.imageUrl(), channel.id());
     }
 
     /** Удаляет канал, сохраняя историю с его прежним именем. */
@@ -82,7 +85,7 @@ public class PublicationStore {
                 """, runId, channel.id(), channel.name(), channel.revision(), timestamp(channel.nextRunAt()), timestamp(now),
                 expired ? "SKIPPED" : "SENDING", expired ? timestamp(now) : null, expired ? "Пропущено после простоя более 15 минут" : "", platformName(channel.platform()));
         jdbc.update("update discord_publication_channels set next_run_at = ? where id = ?", timestamp(nextRun), channel.id());
-        return new Delivery(runId, channel.id(), channel.revision(), secret, channel.nextRunAt(), 1, channel.platform());
+        return new Delivery(runId, channel.id(), channel.revision(), secret, channel.nextRunAt(), 1, channel.platform(), channel.imageUrl());
     }
 
     /** Не допускает параллельный тест и частые нажатия, включая запросы с другой реплики. */
@@ -102,19 +105,19 @@ public class PublicationStore {
                 (id, channel_id, channel_name, channel_revision, scheduled_at, started_at, status, detail, platform)
                 values (?, ?, ?, ?, ?, ?, 'SENDING', 'Тест: отправляется', ?)
                 """, runId, channel.id(), channel.name(), channel.revision(), timestamp(now), timestamp(now), platformName(channel.platform()));
-        return new Delivery(runId, channel.id(), channel.revision(), stored.secret(), now, 1, channel.platform());
+        return new Delivery(runId, channel.id(), channel.revision(), stored.secret(), now, 1, channel.platform(), channel.imageUrl());
     }
 
     /** Захватывает один допустимый повтор после ограничения частоты выбранной платформы. */
     Delivery retry(Instant now, Platform platform) {
         List<Delivery> deliveries = jdbc.query("""
-                select runs.*, channels.webhook_secret from discord_publication_runs runs
+                select runs.*, channels.webhook_secret, channels.image_url from discord_publication_runs runs
                 join discord_publication_channels channels on channels.id = runs.channel_id
                 where runs.status = 'RETRY' and runs.retry_at <= ? and channels.enabled = true
                 and runs.channel_revision = channels.revision and channels.platform = ? order by runs.retry_at limit 1
                 """, (result, rowNumber) -> new Delivery(result.getObject("id", UUID.class), result.getObject("channel_id", UUID.class),
                 result.getLong("channel_revision"), result.getString("webhook_secret"), instant(result, "scheduled_at"),
-                result.getInt("attempts") + 1, platform(result)), timestamp(now), platformName(platform));
+                result.getInt("attempts") + 1, platform(result), result.getString("image_url")), timestamp(now), platformName(platform));
         if (deliveries.isEmpty()) return null;
         Delivery delivery = deliveries.getFirst();
         jdbc.update("update discord_publication_runs set status = 'SENDING', started_at = ?, attempts = ? where id = ?",
@@ -141,7 +144,7 @@ public class PublicationStore {
         jdbc.update("""
                 update discord_publication_runs set status = ?, detail = ?, message_id = ?, retry_at = ?,
                 game_count = ?, finished_at = ? where id = ? and status in ('SENDING', 'UNKNOWN')
-                """, outcome.status(), outcome.detail(), outcome.messageId(), timestamp(outcome.retryAt()),
+                """, outcome.status(), DigestText.limit(outcome.detail(), MAX_DETAIL_LENGTH), outcome.messageId(), timestamp(outcome.retryAt()),
                 gameCount, timestamp(now), delivery.runId());
     }
 

@@ -4,6 +4,7 @@ import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -20,7 +21,7 @@ import static club.ttg.findgame.publications.PublicationModels.*;
 /** Публикует запись на стене сообщества ключом доступа сообщества, как core-api публикует новости. */
 @Component
 public class VkWallClient {
-    static final String ENDPOINT = "https://api.vk.com/method/wall.post";
+    static final String API = "https://api.vk.com/method/";
     static final String API_VERSION = "5.199";
     /** Пауза после «слишком много запросов в секунду»: VK не сообщает точное время. */
     private static final int RATE_LIMIT_DELAY_SECONDS = 5;
@@ -54,21 +55,18 @@ public class VkWallClient {
     String defaultGroupId() { return groupId.matches("-?[1-9][0-9]{0,11}") ? groupId : ""; }
 
     /** Передаёт ключ в теле формы, а не в адресе, и не повторяет неоднозначную доставку. */
-    Outcome send(String groupId, Map<String, Object> payload) {
+    Outcome send(String groupId, Map<String, Object> payload, ImageFile image) {
         if (!configured()) return new Outcome("FAILED", "Ключ сообщества ВКонтакте не настроен на сервере", null, null);
+        // Картинка загружается до записи: сбой загрузки ничего не публикует, и повтор не создаст дубль.
+        Upload upload = image == null ? null : uploadPhoto(groupId, image);
+        if (upload != null && upload.failure() != null) return upload.failure();
         try {
             Map<String, String> form = new LinkedHashMap<>();
             form.put("owner_id", "-" + groupId);
             form.put("from_group", "1");
             form.put("message", payload.get("message").toString());
-            form.put("access_token", token);
-            form.put("v", API_VERSION);
-            String body = form.entrySet().stream().map(field -> field.getKey() + "="
-                    + URLEncoder.encode(field.getValue(), StandardCharsets.UTF_8)).collect(Collectors.joining("&"));
-            HttpRequest request = HttpRequest.newBuilder(URI.create(ENDPOINT))
-                    .timeout(Duration.ofSeconds(15)).header("Content-Type", "application/x-www-form-urlencoded")
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (upload != null) form.put("attachments", upload.attachment());
+            HttpResponse<String> response = call("wall.post", form);
             return interpret(response.statusCode(), response.body(), Instant.now());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -110,7 +108,87 @@ public class VkWallClient {
         }
     }
 
+    /**
+     * Загружает фото в альбом сообщества: сначала штатно для стены, а если ключ сообщества туда не пускает
+     * (ошибка 27), — через альбом сообщений, как обложки новостей в core-api. Фото всё равно принадлежит сообществу.
+     */
+    private Upload uploadPhoto(String groupId, ImageFile image) {
+        try {
+            Upload wall = uploadPhoto(image, "photos.getWallUploadServer", "photos.saveWallPhoto", Map.of("group_id", groupId));
+            if (wall != null) return wall;
+            Upload messages = uploadPhoto(image, "photos.getMessagesUploadServer", "photos.saveMessagesPhoto", Map.of());
+            return messages != null ? messages
+                    : Upload.failed("ВКонтакте не дал загрузить картинку; проверьте право ключа сообщества на фотографии");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return Upload.failed("Отправка прервана до публикации записи");
+        } catch (IOException | RuntimeException exception) {
+            return Upload.failed("Не удалось загрузить картинку во ВКонтакте");
+        }
+    }
+
+    /** Три шага VK: адрес загрузки, файл, сохранение фото; null — VK не выдал адрес, можно попробовать другой путь. */
+    private Upload uploadPhoto(ImageFile image, String serverMethod, String saveMethod, Map<String, String> group)
+            throws IOException, InterruptedException {
+        JsonNode server = mapper.readTree(call(serverMethod, group).body());
+        if (server.has("error")) return rateLimited(server) ? Upload.retry() : null;
+        String uploadUrl = server.path("response").path("upload_url").asText("");
+        if (!uploadUrl.startsWith("https://")) return null;
+        MultipartBody photo = new MultipartBody().file("photo", image);
+        HttpResponse<String> uploaded = client.send(HttpRequest.newBuilder(URI.create(uploadUrl)).timeout(Duration.ofSeconds(30))
+                .header("Content-Type", photo.contentType()).POST(photo.publisher()).build(), HttpResponse.BodyHandlers.ofString());
+        JsonNode file = mapper.readTree(uploaded.body());
+        String photoData = file.path("photo").asText("");
+        // Пустой список — VK отверг файл: обычно размер или пропорции картинки.
+        if (uploaded.statusCode() != 200 || photoData.isBlank() || photoData.equals("[]")) {
+            return Upload.failed("ВКонтакте не принял картинку; проверьте её размер и пропорции");
+        }
+        Map<String, String> save = new LinkedHashMap<>(group);
+        save.put("server", file.path("server").asText(""));
+        save.put("photo", photoData);
+        save.put("hash", file.path("hash").asText(""));
+        JsonNode saved = mapper.readTree(call(saveMethod, save).body());
+        if (saved.has("error")) return rateLimited(saved) ? Upload.retry() : Upload.failed("ВКонтакте не сохранил картинку");
+        JsonNode stored = saved.path("response").path(0);
+        if (!stored.path("id").isIntegralNumber() || !stored.path("owner_id").isIntegralNumber()) {
+            return Upload.failed("ВКонтакте не сохранил картинку");
+        }
+        // Ключ доступа VK выдаёт для фото из закрытого альбома сообщений; без него фото в записи не откроется.
+        String accessKey = stored.path("access_key").asText("");
+        return new Upload("photo" + stored.path("owner_id").asLong() + "_" + stored.path("id").asLong()
+                + (accessKey.matches("[A-Za-z0-9]+") ? "_" + accessKey : ""), null);
+    }
+
+    /** Код 6 означает, что запрос отклонён до выполнения: загрузку можно повторить позже. */
+    private static boolean rateLimited(JsonNode response) {
+        return response.path("error").path("error_code").asInt(0) == 6;
+    }
+
+    /** Вызывает метод API: ключ и версия передаются в теле формы, адрес фиксирован. */
+    private HttpResponse<String> call(String method, Map<String, String> parameters) throws IOException, InterruptedException {
+        Map<String, String> form = new LinkedHashMap<>(parameters);
+        form.put("access_token", token);
+        form.put("v", API_VERSION);
+        String body = form.entrySet().stream().map(field -> field.getKey() + "="
+                + URLEncoder.encode(field.getValue(), StandardCharsets.UTF_8)).collect(Collectors.joining("&"));
+        HttpRequest request = HttpRequest.newBuilder(URI.create(API + method))
+                .timeout(Duration.ofSeconds(15)).header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     /** Освобождает соединения при завершении работы приложения. */
     @PreDestroy
     public void shutdown() { client.shutdown(); }
+
+    /** Итог загрузки фото: строка вложения для записи или безопасная причина отказа. */
+    private record Upload(String attachment, Outcome failure) {
+        /** Отказ без повтора: выпуск уйдёт без картинки. */
+        static Upload failed(String detail) { return new Upload(null, new Outcome("FAILED", detail, null, null)); }
+        /** Ограничение частоты: запись ещё не отправлена, повтор не создаст дубль. */
+        static Upload retry() {
+            return new Upload(null, new Outcome("RETRY", "Ожидает снятия ограничения ВКонтакте", null,
+                    Instant.now().plusSeconds(RATE_LIMIT_DELAY_SECONDS)));
+        }
+    }
 }

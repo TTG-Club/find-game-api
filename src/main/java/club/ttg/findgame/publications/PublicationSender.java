@@ -31,13 +31,13 @@ public class PublicationSender {
         return platform == Platform.VK ? vk.defaultGroupId() : "";
     }
 
-    /** Никогда не передаёт адрес канала транспорту другой платформы. */
-    Outcome send(Delivery delivery, Map<String, Object> payload) {
+    /** Никогда не передаёт адрес канала транспорту другой платформы; image — картинка к сообщению или null. */
+    Outcome send(Delivery delivery, Map<String, Object> payload, ImageFile image) {
         String destination = secrets.decrypt(delivery.platform(), delivery.secret());
         return switch (delivery.platform()) {
-            case DISCORD -> discord.send(destination, payload);
-            case TELEGRAM -> telegram.send(destination, payload);
-            case VK -> vk.send(destination, payload);
+            case DISCORD -> discord.send(destination, payload, image);
+            case TELEGRAM -> telegram.send(destination, payload, image);
+            case VK -> vk.send(destination, payload, image);
         };
     }
 }

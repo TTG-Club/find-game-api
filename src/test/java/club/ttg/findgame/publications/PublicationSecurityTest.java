@@ -81,7 +81,7 @@ class PublicationSecurityTest {
                     .header("Authorization", token(role))).andExpect(status().isForbidden());
         }
         verifyNoInteractions(service, digest, testSender);
-        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "Telegram", true, null, 0, null, PublicationModels.Platform.TELEGRAM);
+        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "Telegram", true, null, 0, null, PublicationModels.Platform.TELEGRAM, null);
         PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", true, false, false);
         when(service.saveChannel(isNull(), any())).thenReturn(overview);
         mvc.perform(post(path + "/channels").header("Authorization", token("ADMIN"))
@@ -96,25 +96,27 @@ class PublicationSecurityTest {
                 && input.telegramChatId().equals("-1001234567890")));
     }
 
-    /** Канал ВКонтакте принимается только от ADMIN; сохранённый ID сообщества не возвращается. */
+    /** Канал ВКонтакте принимается только от ADMIN; ID сообщества не возвращается, путь картинки — возвращается. */
     @Test void vkChannelKeepsGroupIdPrivate() throws Exception {
         String path = "/api/v1/admin/game-publications";
+        String image = "/s3/game-publications/admin/1758560000000-cover.webp";
         String body = """
-                {"name":"ВКонтакте","enabled":true,"revision":0,"platform":"VK","vkGroupId":"212345678"}
-                """;
+                {"name":"ВКонтакте","enabled":true,"revision":0,"platform":"VK","vkGroupId":"212345678","imageUrl":"%s"}
+                """.formatted(image);
         mvc.perform(post(path + "/channels").header("Authorization", token("USER")).contentType("application/json").content(body))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(service);
-        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "ВКонтакте", true, null, 0, null, PublicationModels.Platform.VK);
+        PublicationModels.Channel channel = new PublicationModels.Channel(UUID.randomUUID(), "ВКонтакте", true, null, 0, null, PublicationModels.Platform.VK, image);
         PublicationModels.Overview overview = new PublicationModels.Overview(new PublicationModels.Settings(false, List.of(), 0, null), List.of(channel), true, "Europe/Moscow", false, true, true);
         when(service.saveChannel(isNull(), any())).thenReturn(overview);
         mvc.perform(post(path + "/channels").header("Authorization", token("ADMIN")).contentType("application/json").content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.channels[0].platform").value("VK"))
                 .andExpect(jsonPath("$.channels[0].vkGroupId").doesNotExist())
+                .andExpect(jsonPath("$.channels[0].imageUrl").value(image))
                 .andExpect(jsonPath("$.vkConfigured").value(true));
         verify(service).saveChannel(isNull(), argThat(input -> input.platform() == PublicationModels.Platform.VK
-                && input.vkGroupId().equals("212345678")));
+                && input.vkGroupId().equals("212345678") && input.imageUrl().equals(image)));
     }
 
     /** Создаёт подписанную сессию с указанной ролью. */

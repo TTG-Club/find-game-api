@@ -21,7 +21,7 @@ public final class PublicationModels {
                                @Size(max = 512) String webhookUrl,
                                @Size(min = 1, max = 14) List<@NotNull @Valid Slot> schedule,
                                @Min(0) long revision, @Size(max = 32) String telegramChatId, Platform platform,
-                               @Size(max = 32) String vkGroupId) {
+                               @Size(max = 32) String vkGroupId, @Size(max = 512) String imageUrl) {
         /** Возвращает адрес, введённый для указанной платформы. */
         String address(Platform target) {
             return switch (target) {
@@ -33,7 +33,7 @@ public final class PublicationModels {
     }
     public record Settings(boolean enabled, List<Slot> schedule, long revision, Instant pausedUntil) {}
     public record Channel(UUID id, String name, boolean enabled, List<Slot> schedule,
-                          long revision, Instant nextRunAt, Platform platform) {}
+                          long revision, Instant nextRunAt, Platform platform, String imageUrl) {}
     public record Overview(Settings settings, List<Channel> channels, boolean configured, String timeZone,
                            boolean telegramConfigured, boolean vkConfigured, boolean vkGroupConfigured) {}
     public record TestResult(String status, String detail) {}
@@ -44,7 +44,15 @@ public final class PublicationModels {
                       int gameCount, String detail, String messageId, Platform platform) {}
     record StoredChannel(Channel channel, String secret, String fingerprint) {}
     record Delivery(UUID runId, UUID channelId, long channelRevision, String secret,
-                    Instant scheduledAt, int attempts, Platform platform) {}
+                    Instant scheduledAt, int attempts, Platform platform, String imageUrl) {}
     record Outcome(String status, String detail, String messageId, Instant retryAt) {}
-    record DigestMessage(Map<String, Object> payload, int gameCount) {}
+    /** Часть выпуска; withImage — к этому сообщению прикрепляется картинка канала. */
+    record DigestMessage(Map<String, Object> payload, int gameCount, boolean withImage) {
+        DigestMessage(Map<String, Object> payload, int gameCount) { this(payload, gameCount, false); }
+    }
+    /** Картинка в формате, который принимают все платформы. */
+    record ImageFile(byte[] data, String contentType) {
+        /** Имя файла с расширением по типу: по нему платформы определяют формат. */
+        String filename() { return "games." + (contentType.equals("image/png") ? "png" : "jpg"); }
+    }
 }

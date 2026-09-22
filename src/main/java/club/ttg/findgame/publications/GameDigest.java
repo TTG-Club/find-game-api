@@ -18,6 +18,8 @@ public class GameDigest {
     static final int MAX_GAMES = 8;
     static final int MAX_GENRES_LENGTH = 80;
     private static final int MAX_MESSAGE_LENGTH = 2000;
+    /** Лимит подписи к фото в Telegram, считается по видимому тексту без разметки. */
+    static final int TELEGRAM_CAPTION_LENGTH = 1024;
     private static final int SUPPRESS_EMBEDS = 4;
     private final JdbcTemplate jdbc;
     private final String siteUrl;
@@ -80,11 +82,15 @@ public class GameDigest {
         return fit(selected);
     }
 
+    /** Собирает один выпуск без картинки. */
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform) { return messages(games, platform, false); }
+
     /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом. */
-    List<DigestMessage> messages(List<GameEntry> games, Platform platform) {
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform, boolean withImage) {
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
-        StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction);
+        String head = platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction;
+        StringBuilder content = new StringBuilder(head);
         for (GameEntry game : selected) {
             content.append("\n\n");
             switch (platform) {
@@ -96,12 +102,33 @@ public class GameDigest {
             }
         }
         content.append("\n\n").append(catalogueInvitation(platform));
-        return List.of(switch (platform) {
-            case TELEGRAM -> new DigestMessage(Map.of("text", content.toString(), "parse_mode", "HTML",
-                    "link_preview_options", Map.of("is_disabled", true)), selected.size());
-            case VK -> new DigestMessage(Map.of("message", content.toString()), selected.size());
-            case DISCORD -> message(content.toString(), selected.size());
-        });
+        String text = content.toString();
+        return switch (platform) {
+            case TELEGRAM -> withImage ? telegramWithImage(head, text, selected.size()) : List.of(telegramText(text, selected.size()));
+            case VK -> List.of(new DigestMessage(Map.of("message", text), selected.size(), withImage));
+            case DISCORD -> List.of(message(text, selected.size(), withImage));
+        };
+    }
+
+    /** Подборка длиннее подписи к фото уходит отдельным сообщением сразу после фото со вступлением. */
+    private static List<DigestMessage> telegramWithImage(String head, String text, int gameCount) {
+        if (visibleLength(text) <= TELEGRAM_CAPTION_LENGTH) return List.of(telegramCaption(text, gameCount));
+        return List.of(telegramCaption(head, 0), telegramText(text.substring(head.length() + 2), gameCount));
+    }
+
+    /** Текстовое сообщение Telegram без превью ссылок. */
+    private static DigestMessage telegramText(String text, int gameCount) {
+        return new DigestMessage(Map.of("text", text, "parse_mode", "HTML", "link_preview_options", Map.of("is_disabled", true)), gameCount);
+    }
+
+    /** Подпись к фото Telegram: у sendPhoto нет превью ссылок, настройка не нужна. */
+    private static DigestMessage telegramCaption(String caption, int gameCount) {
+        return new DigestMessage(Map.of("caption", caption, "parse_mode", "HTML"), gameCount, true);
+    }
+
+    /** Длина текста так, как её считает Telegram: без тегов и с раскрытыми сущностями. */
+    static int visibleLength(String html) {
+        return HtmlUtils.htmlUnescape(html.replaceAll("<[^>]*>", "")).length();
     }
 
     /** Умещает сведения всех игр в одно сообщение, сохраняя полные ссылки и число мест. */
@@ -146,10 +173,10 @@ public class GameDigest {
                 + " — там вас ждут другие приключения и новые знакомства. Будем рады каждому!";
     }
 
-    /** Отключает карточки ссылок и упоминания для каждого сообщения. */
-    private static DigestMessage message(String content, int gameCount) {
+    /** Отключает карточки ссылок и упоминания; прикреплённая картинка — вложение, а не карточка, и остаётся видна. */
+    private static DigestMessage message(String content, int gameCount, boolean withImage) {
         return new DigestMessage(Map.of("content", content, "flags", SUPPRESS_EMBEDS,
-                "allowed_mentions", Map.of("parse", List.of())), gameCount);
+                "allowed_mentions", Map.of("parse", List.of())), gameCount, withImage);
     }
 
     /** Показывает название, систему, места, жанры и ссылку без описания игры. */

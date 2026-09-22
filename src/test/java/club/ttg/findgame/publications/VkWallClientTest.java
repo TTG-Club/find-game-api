@@ -33,7 +33,7 @@ class VkWallClientTest {
         when(response.body()).thenReturn("{\"response\":{\"post_id\":42}}");
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(response);
         VkWallClient client = new VkWallClient(mapper, TOKEN, "", http);
-        Outcome outcome = client.send("212345678", Map.of("message", "Игры & приключения\nПодробнее: https://new.ttg.club/games"));
+        Outcome outcome = client.send("212345678", Map.of("message", "Игры & приключения\nПодробнее: https://new.ttg.club/games"), null);
         assertThat(outcome.status()).isEqualTo("SENT");
         assertThat(outcome.messageId()).isEqualTo("42");
         ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
@@ -55,14 +55,14 @@ class VkWallClientTest {
         HttpClient http = mock(HttpClient.class);
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenThrow(new IOException(TOKEN + "/212345678"));
         VkWallClient client = new VkWallClient(mapper, TOKEN, "", http);
-        Outcome outcome = client.send("212345678", Map.of("message", "Проверка"));
+        Outcome outcome = client.send("212345678", Map.of("message", "Проверка"), null);
         assertThat(outcome.status()).isEqualTo("UNKNOWN");
         assertThat(outcome.detail()).doesNotContain(TOKEN, "212345678");
         verify(http, times(1)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
         for (String token : List.of("", "   ", "short", TOKEN + "&v=1")) {
             VkWallClient unconfigured = new VkWallClient(mapper, token, "", http);
             assertThat(unconfigured.configured()).isFalse();
-            assertThat(unconfigured.send("212345678", Map.of("message", "Проверка")).status()).isEqualTo("FAILED");
+            assertThat(unconfigured.send("212345678", Map.of("message", "Проверка"), null).status()).isEqualTo("FAILED");
         }
         assertThat(new VkWallClient(mapper, " " + TOKEN + " ", "", http).configured()).isTrue();
         verifyNoMoreInteractions(http);
