@@ -171,19 +171,22 @@ class PublicationImageTest {
                 "https://api.vk.com/method/photos.getWallUploadServer", response(200, "{\"error\":{\"error_code\":27,\"error_msg\":\"" + token + "\"}}"),
                 "https://api.vk.com/method/photos.getMessagesUploadServer", response(200, "{\"response\":{\"upload_url\":\"https://pu.vk.com/c1/upload.php?act=do_add\"}}"),
                 "https://pu.vk.com/c1/upload.php?act=do_add", response(200, "{\"server\":777,\"photo\":\"[{\\\"photo\\\":\\\"x\\\"}]\",\"hash\":\"h1\"}"),
-                "https://api.vk.com/method/photos.saveMessagesPhoto", response(200, "{\"response\":[{\"id\":457239017,\"owner_id\":-212345678,\"access_key\":\"abc123\"}]}"),
-                "https://api.vk.com/method/wall.post", response(200, "{\"response\":{\"post_id\":42}}"));
+                "https://api.vk.com/method/photos.saveMessagesPhoto", response(200, "{\"response\":[{\"id\":457239017,\"owner_id\":-212345678,\"access_key\":\"abc_123-x\"}]}"),
+                "https://api.vk.com/method/wall.post", response(200, "{\"response\":{\"post_id\":42}}"),
+                "https://api.vk.com/method/wall.getById", response(200, "{\"response\":{\"items\":[{\"id\":42,\"attachments\":[{\"type\":\"photo\"}]}]}}"));
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any()))
                 .thenAnswer(invocation -> answers.get(invocation.<HttpRequest>getArgument(0).uri().toString()));
         VkWallClient client = new VkWallClient(mapper, token, "", http);
         Outcome outcome = client.send("212345678", Map.of("message", "Подборка"), IMAGE);
         assertThat(outcome.status()).isEqualTo("SENT");
         assertThat(outcome.messageId()).isEqualTo("42");
+        // Путь загрузки виден администратору в журнале: фото из альбома сообщений VK показывает не всегда.
+        assertThat(outcome.detail()).isEqualTo("Опубликовано; картинка загружена через альбом сообщений");
         List<HttpRequest> requests = captured(http);
         assertThat(requests).extracting(request -> request.uri().toString()).containsExactly(
                 "https://api.vk.com/method/photos.getWallUploadServer", "https://api.vk.com/method/photos.getMessagesUploadServer",
                 "https://pu.vk.com/c1/upload.php?act=do_add", "https://api.vk.com/method/photos.saveMessagesPhoto",
-                "https://api.vk.com/method/wall.post");
+                "https://api.vk.com/method/wall.post", "https://api.vk.com/method/wall.getById");
         assertThat(form(requests.get(0))).containsEntry("group_id", "212345678");
         Map<String, Part> upload = parts(requests.get(2));
         assertThat(upload).containsOnlyKeys("photo");
@@ -192,7 +195,27 @@ class PublicationImageTest {
         assertThat(form(requests.get(3))).containsEntry("server", "777").containsEntry("photo", "[{\"photo\":\"x\"}]")
                 .containsEntry("hash", "h1").doesNotContainKey("group_id");
         assertThat(form(requests.get(4))).containsEntry("message", "Подборка")
-                .containsEntry("attachments", "photo-212345678_457239017_abc123");
+                .containsEntry("attachments", "photo-212345678_457239017_abc_123-x");
+        assertThat(form(requests.get(5))).containsEntry("posts", "-212345678_42");
+    }
+
+    /** Запись без фото видна по самой записи: администратор узнаёт об этом из журнала, а не по пустому посту. */
+    @Test void vkReportsPhotoMissingInPublishedPost() throws Exception {
+        String token = "vk1.a." + "b".repeat(80);
+        HttpClient http = mock(HttpClient.class);
+        when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenAnswer(invocation -> {
+            String uri = invocation.<HttpRequest>getArgument(0).uri().toString();
+            if (uri.endsWith("getWallUploadServer")) return response(200, "{\"response\":{\"upload_url\":\"https://pu.vk.com/u\"}}");
+            if (uri.startsWith("https://pu.vk.com")) return response(200, "{\"server\":1,\"photo\":\"[{}]\",\"hash\":\"h\"}");
+            if (uri.endsWith("saveWallPhoto")) return response(200, "{\"response\":[{\"id\":1,\"owner_id\":-212345678}]}");
+            if (uri.endsWith("wall.post")) return response(200, "{\"response\":{\"post_id\":42}}");
+            return response(200, "{\"response\":{\"items\":[{\"id\":42,\"attachments\":[{\"type\":\"link\"}]}]}}");
+        });
+        Outcome outcome = new VkWallClient(mapper, token, "", http).send("212345678", Map.of("message", "Подборка"), IMAGE);
+        assertThat(outcome.status()).isEqualTo("SENT");
+        assertThat(outcome.messageId()).isEqualTo("42");
+        assertThat(outcome.detail()).isEqualTo("Опубликовано; ВКонтакте не показал картинку в записи"
+                + " (загружена на стену сообщества); дайте ключу сообщества право на фотографии и стену");
     }
 
     /** Отказ VK от файла ничего не публикует; ограничение частоты откладывает выпуск, а не теряет картинку. */
