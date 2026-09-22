@@ -207,6 +207,14 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void oldSiteCanReadGameSystemsCrossSite() throws Exception {
+        mockMvc.perform(get("/api/v1/game-systems")
+                        .header(HttpHeaders.ORIGIN, "https://dev.5e14.ttg.club"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://dev.5e14.ttg.club"));
+    }
+
+    @Test
     void regularUserCannotAddGameSystem() throws Exception {
         mockMvc.perform(post("/api/v1/moderation/game-systems")
                         .header(HttpHeaders.AUTHORIZATION,

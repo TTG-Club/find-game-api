@@ -117,6 +117,7 @@ public class SecurityConfiguration {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/v1/games", configuration);
+        source.registerCorsConfiguration("/api/v1/game-systems", configuration);
         return source;
     }
 
