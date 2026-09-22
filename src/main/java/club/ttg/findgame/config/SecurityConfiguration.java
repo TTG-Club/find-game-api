@@ -107,7 +107,11 @@ public class SecurityConfiguration {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("https://ttg.club", "https://5e14.ttg.club"));
+        configuration.setAllowedOrigins(List.of(
+                "https://ttg.club",
+                "https://5e14.ttg.club",
+                "https://dev.5e14.ttg.club"
+        ));
         configuration.setAllowedMethods(List.of("GET"));
         configuration.setAllowedHeaders(List.of("*"));
 

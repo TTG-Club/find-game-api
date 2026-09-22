@@ -181,6 +181,16 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void devOldSiteCanReadPublicGamesDirectly() throws Exception {
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt(), any())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games")
+                        .header(HttpHeaders.ORIGIN, "https://dev.5e14.ttg.club"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://dev.5e14.ttg.club"));
+    }
+
+    @Test
     void otherOriginsCannotReadPublicGamesCrossSite() throws Exception {
         mockMvc.perform(get("/api/v1/games")
                         .header(HttpHeaders.ORIGIN, "https://unrelated.example"))
