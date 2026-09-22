@@ -28,6 +28,9 @@ import static org.mockito.Mockito.*;
 class PublicationImageTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private static final String PATH = "/s3/game-publications/admin/1758560000000-cover.webp";
+    private static final String SITE = "https://new.ttg.club";
+    private static final String DEV_SITE = "https://dev.ttg.club";
+    private static final String ADDRESS = SITE + PATH;
     /** 40×20, непрозрачная, сжата sharp так же, как загрузка сайта. */
     private static final byte[] OPAQUE_WEBP = Base64.getDecoder().decode(
             "UklGRkwAAABXRUJQVlA4IEAAAAAwAwCdASooABQAPm02l0ikIyIhJWgAgA2JZwDJEA8Kvu4AAP7vvVeuLmyIo//srH/+lY//0rH8OMGJ/ZrmsAAA");
@@ -39,14 +42,26 @@ class PublicationImageTest {
             "UklGRk4AAABXRUJQVlA4IEIAAADwBQCdASqkARQAPtFosFMoJiSioKgBABoJaW7hdJAAY2upvcReWAa6m9xF5YBrqb3EXlgGupvRAAD+/tBQAAAAAAA=");
     private static final ImageFile IMAGE = new ImageFile(new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3}, "image/jpeg");
 
-    /** Сервис скачивает только картинки, загруженные через сайт, а не произвольные адреса. */
-    @Test void acceptsOnlySiteUploadPaths() {
-        assertThat(PublicationImages.normalize(" " + PATH + " ")).isEqualTo(PATH);
-        assertThat(PublicationImages.normalize("/s3/games/user/1-cover")).isEqualTo("/s3/games/user/1-cover");
-        for (String invalid : List.of("https://evil.example/cover.png", "//evil.example/s3/a/b.png", "/s3/cover.png",
-                "/s3/a/../b.png", "/s3/a/b.png?x=1", "/s3/a//b.png", "/s3/a/b.png#top", "/api/v1/admin/x/y",
-                "/s3/a/b c.png", "/s3/a/" + "b".repeat(520) + ".png")) {
-            assertThatThrownBy(() -> PublicationImages.normalize(invalid)).isInstanceOf(ResponseStatusException.class);
+    /** Путь без сайта относится к сайту подборки, полный адрес принимается только от разрешённых сайтов. */
+    @Test void acceptsOnlyAllowedSiteUploads() {
+        PublicationImages images = new PublicationImages(SITE, " " + DEV_SITE + " ,", mock(HttpClient.class));
+        assertThat(images.normalize(" " + PATH + " ")).isEqualTo(ADDRESS);
+        assertThat(images.normalize("/s3/games/user/1-cover")).isEqualTo(SITE + "/s3/games/user/1-cover");
+        assertThat(images.normalize(ADDRESS)).isEqualTo(ADDRESS);
+        assertThat(images.normalize("HTTPS://DEV.TTG.CLUB" + PATH)).isEqualTo(DEV_SITE + PATH);
+        for (String invalid : List.of("https://evil.example/cover.png", "https://evil.example" + PATH,
+                "https://new.ttg.club.evil.example" + PATH, "http://new.ttg.club" + PATH,
+                "https://new.ttg.club/files" + PATH, "https://new.ttg.club@evil.example" + PATH,
+                "//evil.example/s3/a/b.png", "/s3/cover.png", "/s3/a/../b.png", "/s3/a/b.png?x=1", "/s3/a//b.png",
+                "/s3/a/b.png#top", "/api/v1/admin/x/y", "/s3/a/b c.png", "/s3/a/" + "b".repeat(520) + ".png")) {
+            assertThatThrownBy(() -> images.normalize(invalid)).isInstanceOf(ResponseStatusException.class);
+        }
+        // Без списка дополнительных сайтов остаётся только сайт подборки.
+        assertThatThrownBy(() -> new PublicationImages(SITE, "", mock(HttpClient.class)).normalize(DEV_SITE + PATH))
+                .isInstanceOf(ResponseStatusException.class);
+        for (String invalid : List.of("dev.ttg.club", "http://dev.ttg.club", "https://dev.ttg.club/s3")) {
+            assertThatThrownBy(() -> new PublicationImages(SITE, invalid, mock(HttpClient.class)))
+                    .isInstanceOf(IllegalArgumentException.class);
         }
     }
 
@@ -81,12 +96,13 @@ class PublicationImageTest {
         when(response.statusCode()).thenReturn(200);
         when(response.body()).thenAnswer(invocation -> new ByteArrayInputStream(OPAQUE_WEBP));
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any())).thenReturn(response);
-        PublicationImages images = new PublicationImages("https://new.ttg.club/", http);
-        assertThat(images.load(PATH).contentType()).isEqualTo("image/jpeg");
-        assertThat(images.load(PATH).contentType()).isEqualTo("image/jpeg");
+        PublicationImages images = new PublicationImages("https://new.ttg.club/", DEV_SITE, http);
+        assertThat(images.load(ADDRESS).contentType()).isEqualTo("image/jpeg");
+        assertThat(images.load(ADDRESS).contentType()).isEqualTo("image/jpeg");
+        assertThat(images.load(DEV_SITE + PATH).contentType()).isEqualTo("image/jpeg");
         ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
-        verify(http, times(1)).send(request.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any());
-        assertThat(request.getValue().uri().toString()).isEqualTo("https://new.ttg.club" + PATH);
+        verify(http, times(2)).send(request.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any());
+        assertThat(request.getAllValues()).extracting(one -> one.uri().toString()).containsExactly(ADDRESS, DEV_SITE + PATH);
         assertThat(request.getValue().method()).isEqualTo("GET");
         images.shutdown();
         verify(http).shutdown();
@@ -95,15 +111,15 @@ class PublicationImageTest {
     /** Отсутствующий файл, перенаправление, большой файл и сетевой сбой дают безопасную причину без адреса. */
     @Test void unavailableImageHasSafeReason() throws Exception {
         for (int status : List.of(404, 302, 500)) {
-            assertThatThrownBy(() -> images(status, new byte[0]).load(PATH)).isInstanceOf(PublicationImages.Unavailable.class)
+            assertThatThrownBy(() -> images(status, new byte[0]).load(ADDRESS)).isInstanceOf(PublicationImages.Unavailable.class)
                     .hasMessageContaining("HTTP " + status).hasMessageNotContaining("new.ttg.club");
         }
-        assertThatThrownBy(() -> images(200, new byte[10 * 1024 * 1024 + 1]).load(PATH))
+        assertThatThrownBy(() -> images(200, new byte[10 * 1024 * 1024 + 1]).load(ADDRESS))
                 .isInstanceOf(PublicationImages.Unavailable.class).hasMessageContaining("10 МБ");
         HttpClient http = mock(HttpClient.class);
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any()))
-                .thenThrow(new java.io.IOException("https://new.ttg.club" + PATH));
-        assertThatThrownBy(() -> new PublicationImages("https://new.ttg.club", http).load(PATH))
+                .thenThrow(new java.io.IOException(ADDRESS));
+        assertThatThrownBy(() -> new PublicationImages(SITE, "", http).load(ADDRESS))
                 .isInstanceOf(PublicationImages.Unavailable.class).hasMessageNotContaining(PATH);
     }
 
@@ -248,7 +264,7 @@ class PublicationImageTest {
     /** Картинка прикрепляется только к отмеченной части выпуска. */
     @Test void scheduledDigestSendsImageWithMarkedMessage() throws Exception {
         Fixture fixture = new Fixture(Platform.TELEGRAM);
-        when(fixture.images.load(PATH)).thenReturn(IMAGE);
+        when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         List<DigestMessage> parts = List.of(new DigestMessage(Map.of("caption", "Вступление"), 0, true), new DigestMessage(Map.of("text", "Игры"), 1));
         when(fixture.digest.messages(fixture.games, Platform.TELEGRAM, true)).thenReturn(parts);
         when(fixture.telegram.send(anyString(), anyMap(), any())).thenReturn(sent("1"), sent("2"));
@@ -262,7 +278,7 @@ class PublicationImageTest {
     /** Отказ платформы от сообщения с картинкой ничего не публикует: выпуск уходит без картинки с пояснением. */
     @Test void rejectedImageFallsBackToText() throws Exception {
         Fixture fixture = new Fixture(Platform.DISCORD);
-        when(fixture.images.load(PATH)).thenReturn(IMAGE);
+        when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         DigestMessage withImage = new DigestMessage(Map.of("content", "Подборка"), 1, true);
         DigestMessage plain = new DigestMessage(Map.of("content", "Подборка"), 1);
         when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(withImage));
@@ -278,7 +294,7 @@ class PublicationImageTest {
     /** Недоступная картинка не останавливает выпуск; неоднозначный исход и лимит не повторяются без картинки. */
     @Test void unavailableImageAndAmbiguousOutcomes() throws Exception {
         Fixture missing = new Fixture(Platform.DISCORD);
-        when(missing.images.load(PATH)).thenThrow(new PublicationImages.Unavailable("картинка не найдена на сайте (HTTP 404)"));
+        when(missing.images.load(ADDRESS)).thenThrow(new PublicationImages.Unavailable("картинка не найдена на сайте (HTTP 404)"));
         when(missing.digest.messages(missing.games, Platform.DISCORD)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1)));
         when(missing.discord.send(anyString(), anyMap(), isNull())).thenReturn(sent("123456789012345678"));
         missing.scheduler.publish(missing.delivery);
@@ -287,7 +303,7 @@ class PublicationImageTest {
         for (Outcome ambiguous : List.of(new Outcome("UNKNOWN", "Нет подтверждения", null, null),
                 new Outcome("RETRY", "Лимит", null, java.time.Instant.now().plusSeconds(5)))) {
             Fixture fixture = new Fixture(Platform.DISCORD);
-            when(fixture.images.load(PATH)).thenReturn(IMAGE);
+            when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
             when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1, true)));
             when(fixture.discord.send(anyString(), anyMap(), any())).thenReturn(ambiguous);
             fixture.scheduler.publish(fixture.delivery);
@@ -316,7 +332,7 @@ class PublicationImageTest {
         final List<GameEntry> games = games(1);
 
         Fixture(Platform platform) {
-            delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", java.time.Instant.now(), 1, platform, PATH);
+            delivery = new Delivery(UUID.randomUUID(), UUID.randomUUID(), 0, "encrypted", java.time.Instant.now(), 1, platform, ADDRESS);
             when(service.current(delivery)).thenReturn(true);
             when(digest.preview()).thenReturn(games);
             when(secrets.decrypt(eq(platform), anyString())).thenReturn(platform == Platform.TELEGRAM ? "chat" : "webhook");
@@ -350,7 +366,7 @@ class PublicationImageTest {
         when(response.statusCode()).thenReturn(status);
         when(response.body()).thenReturn(new ByteArrayInputStream(body));
         when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any())).thenReturn(response);
-        return new PublicationImages("https://new.ttg.club", http);
+        return new PublicationImages(SITE, "", http);
     }
 
     /** Все запросы к подменённому клиенту по порядку. */

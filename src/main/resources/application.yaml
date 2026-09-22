@@ -90,6 +90,8 @@ logging:
 discord-publications:
   encryption-key: ${DISCORD_WEBHOOK_ENCRYPTION_KEY:}
   site-url: ${DISCORD_PUBLICATION_SITE_URL:https://new.ttg.club}
+  # Сайты, с которых разрешено брать картинки каналов, кроме site-url: у стендов отдельные хранилища.
+  image-hosts: ${PUBLICATION_IMAGE_HOSTS:}
 
 # Тот же бот, что в core-api; ID каналов задаются через админку и шифруются в базе.
 telegram:

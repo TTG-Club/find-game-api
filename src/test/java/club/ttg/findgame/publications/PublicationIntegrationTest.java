@@ -35,7 +35,9 @@ class PublicationIntegrationTest {
         @Bean ObjectMapper mapper() { return new ObjectMapper(); }
         @Bean PublicationSecrets secrets() { return new PublicationSecrets("", "0123456789abcdef0123456789abcdef"); }
         @Bean PublicationStore store(JdbcTemplate jdbc, ObjectMapper mapper) { return new PublicationStore(jdbc, mapper); }
-        @Bean PublicationService service(PublicationStore store, PublicationSecrets secrets, PublicationSender sender) { return new PublicationService(store, secrets, sender); }
+        @Bean PublicationService service(PublicationStore store, PublicationSecrets secrets, PublicationSender sender, PublicationImages images) {
+            return new PublicationService(store, secrets, sender, images);
+        }
         @Bean GameDigest digest(JdbcTemplate jdbc) { return new GameDigest(jdbc, "https://new.ttg.club"); }
         @Bean DiscordWebhookClient client() { return mock(DiscordWebhookClient.class); }
         @Bean TelegramBotClient telegram() { return mock(TelegramBotClient.class); }
@@ -43,7 +45,10 @@ class PublicationIntegrationTest {
         @Bean PublicationSender sender(PublicationSecrets secrets, DiscordWebhookClient client, TelegramBotClient telegram, VkWallClient vk) {
             return new PublicationSender(secrets, client, telegram, vk);
         }
-        @Bean PublicationImages images() { return mock(PublicationImages.class); }
+        // Проверка адреса настоящая, загрузка подменяется в тестах: сеть не используется.
+        @Bean PublicationImages images() {
+            return spy(new PublicationImages("https://new.ttg.club", "https://dev.ttg.club", mock(java.net.http.HttpClient.class)));
+        }
         @Bean PublicationTestSender testSender(PublicationService service, PublicationSender sender, PublicationImages images) {
             return new PublicationTestSender(service, sender, images);
         }
@@ -448,23 +453,26 @@ class PublicationIntegrationTest {
         verifyNoInteractions(client);
     }
 
-    /** Картинка сохраняется путём сайта: без поля остаётся прежней, пустое значение убирает, чужой адрес отклоняется. */
+    /** Картинка сохраняется полным адресом сайта: без поля остаётся прежней, пустое значение убирает, чужой адрес отклоняется. */
     @Test void channelImageIsStoredAndReachesDeliveries() {
         service.saveSettings(new SettingsInput(true, GLOBAL, 0));
-        String image = "/s3/game-publications/admin/1758560000000-cover.webp";
-        Channel channel = service.saveChannel(null, new ChannelInput("Канал", true, WEBHOOK, null, 0, null, Platform.DISCORD, null, " " + image))
-                .channels().getFirst();
+        String image = "https://new.ttg.club/s3/game-publications/admin/1758560000000-cover.webp";
+        Channel channel = service.saveChannel(null, new ChannelInput("Канал", true, WEBHOOK, null, 0, null, Platform.DISCORD, null,
+                " /s3/game-publications/admin/1758560000000-cover.webp ")).channels().getFirst();
         assertThat(channel.imageUrl()).isEqualTo(image);
         Channel renamed = service.saveChannel(channel.id(), new ChannelInput("Новое имя", true, "", null, channel.revision(), null, Platform.DISCORD, null, null))
                 .channels().getFirst();
         assertThat(renamed.imageUrl()).isEqualTo(image);
         due(channel.id(), Instant.now().minusSeconds(10));
         assertThat(service.claim(Instant.now()).imageUrl()).isEqualTo(image);
+        Channel fromDev = service.saveChannel(channel.id(), new ChannelInput("Канал", true, "", null, renamed.revision(), null,
+                Platform.DISCORD, null, "https://dev.ttg.club/s3/game-publications/admin/1-cover.webp")).channels().getFirst();
+        assertThat(fromDev.imageUrl()).isEqualTo("https://dev.ttg.club/s3/game-publications/admin/1-cover.webp");
         for (String invalid : List.of("https://evil.example/cover.png", "/s3/a/../b.png")) {
-            assertThatThrownBy(() -> service.saveChannel(channel.id(), new ChannelInput("Канал", true, "", null, renamed.revision(), null, Platform.DISCORD, null, invalid)))
+            assertThatThrownBy(() -> service.saveChannel(channel.id(), new ChannelInput("Канал", true, "", null, fromDev.revision(), null, Platform.DISCORD, null, invalid)))
                     .isInstanceOf(ResponseStatusException.class);
         }
-        Channel cleared = service.saveChannel(channel.id(), new ChannelInput("Канал", true, "", null, renamed.revision(), null, Platform.DISCORD, null, ""))
+        Channel cleared = service.saveChannel(channel.id(), new ChannelInput("Канал", true, "", null, fromDev.revision(), null, Platform.DISCORD, null, ""))
                 .channels().getFirst();
         assertThat(cleared.imageUrl()).isNull();
         assertThat(jdbc.queryForObject("select image_url from discord_publication_channels", String.class)).isNull();
@@ -472,17 +480,17 @@ class PublicationIntegrationTest {
 
     /** Тест отправляет картинку канала; недоступная картинка сообщается без отправки текста вместо неё. */
     @Test void testMessageCarriesChannelImage() throws Exception {
-        String image = "/s3/game-publications/admin/1758560000000-cover.webp";
+        String image = "https://new.ttg.club/s3/game-publications/admin/1758560000000-cover.webp";
         ImageFile file = new ImageFile(new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}, "image/jpeg");
         Channel telegramChannel = service.saveChannel(null, new ChannelInput("Telegram", false, "", null, 0, "-1001234567890", Platform.TELEGRAM, null, image)).channels().getFirst();
-        when(images.load(image)).thenReturn(file);
+        doReturn(file).when(images).load(image);
         when(telegram.send(eq("-1001234567890"), anyMap(), eq(file))).thenReturn(new Outcome("SENT", "Опубликовано", "42", null));
         assertThat(testSender.send(telegramChannel.id(), telegramChannel.revision()).status()).isEqualTo("SENT");
         verify(telegram).send(eq("-1001234567890"), argThat(payload -> payload.keySet().equals(Set.of("caption"))
                 && payload.get("caption").toString().contains("Тестовое сообщение")), eq(file));
         Channel discordChannel = service.saveChannel(null, new ChannelInput("Discord", false, WEBHOOK, null, 0, null, Platform.DISCORD, null, image))
                 .channels().stream().filter(channel -> channel.platform() == Platform.DISCORD).findFirst().orElseThrow();
-        when(images.load(image)).thenThrow(new PublicationImages.Unavailable("сайт не отдал картинку (HTTP 404)"));
+        doThrow(new PublicationImages.Unavailable("сайт не отдал картинку (HTTP 404)")).when(images).load(image);
         TestResult missing = testSender.send(discordChannel.id(), discordChannel.revision());
         assertThat(missing.status()).isEqualTo("FAILED");
         assertThat(missing.detail()).isEqualTo("Картинка канала недоступна: сайт не отдал картинку (HTTP 404); выберите её заново");

@@ -26,7 +26,10 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import static club.ttg.findgame.publications.PublicationModels.*;
 
@@ -35,6 +38,8 @@ import static club.ttg.findgame.publications.PublicationModels.*;
 public class PublicationImages {
     /** Путь, который выдаёт загрузка картинок сайта: /s3/раздел/владелец/имя.расширение, без «..» и параметров. */
     private static final Pattern PATH = Pattern.compile("/s3/(?:[A-Za-z0-9_-]+/){1,4}[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9]{1,10})?");
+    /** Полный адрес картинки: сайт из списка разрешённых и тот же путь загрузки. */
+    private static final Pattern ORIGIN = Pattern.compile("https://[a-z0-9.-]{1,60}");
     private static final int MAX_PATH_LENGTH = 512;
     /** Лимит Telegram и Discord на фото — 10 МБ; сайт отдаёт сжатые картинки до 1 МБ. */
     private static final int MAX_BYTES = 10 * 1024 * 1024;
@@ -48,41 +53,65 @@ public class PublicationImages {
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private static final int CACHE_SIZE = 8;
     private final String siteUrl;
+    private final Set<String> allowedSites;
     private final HttpClient client;
     private final Map<String, Cached> cache = new LinkedHashMap<>(CACHE_SIZE, 0.75f, true);
 
-    /** Берёт картинки с того же сайта, на который ведут ссылки подборки. */
+    /**
+     * Берёт картинки с сайта подборки, а также с сайтов из PUBLICATION_IMAGE_HOSTS: у стендов
+     * отдельные хранилища, и картинка лежит там, где её загрузили.
+     */
     @Autowired
-    public PublicationImages(@Value("${discord-publications.site-url}") String siteUrl) {
-        this(siteUrl, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+    public PublicationImages(@Value("${discord-publications.site-url}") String siteUrl,
+                             @Value("${discord-publications.image-hosts:}") String imageHosts) {
+        this(siteUrl, imageHosts, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NEVER).build());
     }
 
     /** Позволяет проверить загрузку без обращения к сайту. */
-    PublicationImages(String siteUrl, HttpClient client) {
+    PublicationImages(String siteUrl, String imageHosts, HttpClient client) {
         this.siteUrl = "https://" + URI.create(siteUrl).getHost();
+        Set<String> sites = new LinkedHashSet<>();
+        sites.add(this.siteUrl);
+        for (String host : imageHosts.split(",")) {
+            String site = host.trim().toLowerCase(Locale.ROOT);
+            if (site.isEmpty()) continue;
+            if (!ORIGIN.matcher(site).matches()) {
+                throw new IllegalArgumentException("PUBLICATION_IMAGE_HOSTS: ожидается список HTTPS-адресов сайтов через запятую");
+            }
+            sites.add(site);
+        }
+        this.allowedSites = Set.copyOf(sites);
         this.client = client;
     }
 
-    /** Принимает только путь из загрузки сайта: сервис не скачивает картинки с произвольных адресов. */
-    static String normalize(String path) {
-        String trimmed = path.trim();
-        if (trimmed.length() > MAX_PATH_LENGTH || !PATH.matcher(trimmed).matches()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Картинку нужно загрузить через админку сайта");
+    /**
+     * Принимает только адрес загрузки сайта: путь /s3/... относительно сайта подборки либо
+     * полный адрес разрешённого сайта. Произвольные адреса сервис не скачивает.
+     */
+    String normalize(String address) {
+        String trimmed = address.trim();
+        if (trimmed.length() <= MAX_PATH_LENGTH) {
+            if (PATH.matcher(trimmed).matches()) return siteUrl + trimmed;
+            int path = trimmed.indexOf("/s3/");
+            if (path > 0 && allowedSites.contains(trimmed.substring(0, path).toLowerCase(Locale.ROOT))
+                    && PATH.matcher(trimmed.substring(path)).matches()) {
+                return trimmed.substring(0, path).toLowerCase(Locale.ROOT) + trimmed.substring(path);
+            }
         }
-        return trimmed;
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Картинку нужно загрузить через админку сайта");
     }
 
     /** Возвращает готовую к отправке картинку; причина недоступности безопасна для журнала. */
-    ImageFile load(String path) throws Unavailable {
+    ImageFile load(String address) throws Unavailable {
         Instant now = Instant.now();
         synchronized (cache) {
-            Cached cached = cache.get(path);
+            Cached cached = cache.get(address);
             if (cached != null && cached.expiresAt().isAfter(now)) return cached.image();
         }
-        ImageFile image = prepare(download(path));
+        ImageFile image = prepare(download(address));
         synchronized (cache) {
-            cache.put(path, new Cached(image, now.plus(CACHE_TTL)));
+            cache.put(address, new Cached(image, now.plus(CACHE_TTL)));
             if (cache.size() > CACHE_SIZE) cache.remove(cache.keySet().iterator().next());
         }
         return image;
@@ -93,8 +122,8 @@ public class PublicationImages {
     public void shutdown() { client.shutdown(); }
 
     /** Читает не больше лимита и не идёт по перенаправлениям. */
-    private byte[] download(String path) throws Unavailable {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(siteUrl + normalize(path)))
+    private byte[] download(String address) throws Unavailable {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(normalize(address)))
                 .timeout(Duration.ofSeconds(15)).header("Accept", "image/*").GET().build();
         try {
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());

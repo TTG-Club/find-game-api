@@ -17,10 +17,11 @@ public class PublicationService {
     private final PublicationStore store;
     private final PublicationSecrets secrets;
     private final PublicationSender sender;
+    private final PublicationImages images;
 
-    /** Подключает хранилище и серверное шифрование. */
-    public PublicationService(PublicationStore store, PublicationSecrets secrets, PublicationSender sender) {
-        this.store = store; this.secrets = secrets; this.sender = sender;
+    /** Подключает хранилище, серверное шифрование и проверку адресов картинок. */
+    public PublicationService(PublicationStore store, PublicationSecrets secrets, PublicationSender sender, PublicationImages images) {
+        this.store = store; this.secrets = secrets; this.sender = sender; this.images = images;
     }
 
     /** Возвращает согласованный снимок настроек без адресов каналов. */
@@ -90,7 +91,7 @@ public class PublicationService {
         String secret = destination == null ? previous.secret() : secrets.encrypt(platform, destination);
         // Прежние клиенты не знают о картинке и не передают поле: оно не должно стирать выбранную картинку.
         String imageUrl = input.imageUrl() == null ? previous == null ? null : previous.channel().imageUrl()
-                : input.imageUrl().isBlank() ? null : PublicationImages.normalize(input.imageUrl());
+                : input.imageUrl().isBlank() ? null : images.normalize(input.imageUrl());
         Instant now = Instant.now();
         List<Slot> schedule = input.schedule() == null ? settings.schedule() : input.schedule();
         Instant next = settings.enabled() && input.enabled() ? WeeklySchedule.next(schedule, now) : null;
