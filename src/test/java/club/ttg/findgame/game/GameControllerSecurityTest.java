@@ -39,6 +39,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest({GameController.class, GameSystemController.class})
@@ -167,6 +168,24 @@ class GameControllerSecurityTest {
                 .andExpect(status().isOk());
 
         verify(service).findOwn(userId, Set.of(), 0, 20, GamePersonalRole.APPLICATIONS, false);
+    }
+
+    @Test
+    void oldSiteCanReadPublicGamesDirectly() throws Exception {
+        given(service.findPublic(any(GameSearchFilter.class), anyInt(), anyInt(), any())).willReturn(Page.empty());
+
+        mockMvc.perform(get("/api/v1/games")
+                        .header(HttpHeaders.ORIGIN, "https://5e14.ttg.club"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://5e14.ttg.club"));
+    }
+
+    @Test
+    void otherOriginsCannotReadPublicGamesCrossSite() throws Exception {
+        mockMvc.perform(get("/api/v1/games")
+                        .header(HttpHeaders.ORIGIN, "https://unrelated.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 
     @Test
