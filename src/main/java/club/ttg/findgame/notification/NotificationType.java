@@ -21,6 +21,9 @@ public enum NotificationType {
     /** В игре назначена новая встреча. */
     SESSION_SCHEDULED,
 
+    /** Мастер перенёс встречу на другое время. */
+    SESSION_RESCHEDULED,
+
     /** Сессия началась. */
     SESSION_STARTED,
 

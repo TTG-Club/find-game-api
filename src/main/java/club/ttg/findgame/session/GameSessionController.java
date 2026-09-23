@@ -4,6 +4,7 @@ import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
+import club.ttg.findgame.session.api.UpdateGameSessionRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -72,6 +73,16 @@ public class GameSessionController {
                 UUID.fromString(jwt.getSubject()), gameId, sourceSessionId, request);
     }
 
+    @PatchMapping("/{sessionId}")
+    @Operation(summary = "Изменить назначенную сессию: название, время, длительность")
+    public GameSessionResponse update(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId,
+            @PathVariable UUID sessionId,
+            @Valid @RequestBody UpdateGameSessionRequest request
+    ) {
+        return service.update(UUID.fromString(jwt.getSubject()), gameId, sessionId, request);
+    }
 
     @PatchMapping("/{sessionId}/start")
     @Operation(summary = "Начать сессию")

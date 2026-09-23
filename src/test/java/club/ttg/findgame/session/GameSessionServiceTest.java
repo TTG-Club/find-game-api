@@ -5,6 +5,7 @@ import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameCostType;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.notification.NotificationService;
+import club.ttg.findgame.notification.NotificationType;
 import club.ttg.findgame.nexus.NexusService;
 import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.registration.GameRegistrationRepository;
@@ -16,6 +17,7 @@ import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
+import club.ttg.findgame.session.api.UpdateGameSessionRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mapstruct.factory.Mappers;
@@ -39,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -376,6 +379,136 @@ class GameSessionServiceTest {
         participant.setAttendanceStatus(attendanceStatus);
 
         return participant;
+    }
+
+    @Test
+    void rescheduleResetsAttendanceAndNotifiesPlayers() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = scheduledSession(Instant.parse("2099-01-10T13:00:00Z"));
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SessionRegistration attending = participant(sessionId, SessionAttendanceStatus.ATTENDING);
+        SessionRegistration declined =
+                participant(sessionId, SessionAttendanceStatus.NOT_ATTENDING);
+        when(registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(List.of(attending, declined));
+        Instant newStart = Instant.parse("2099-01-10T15:00:00Z");
+
+        GameSessionResponse response = service().update(masterId, gameId, sessionId,
+                new UpdateGameSessionRequest("Глава вторая", newStart, 180));
+
+        assertThat(response.startsAt()).isEqualTo(newStart);
+        assertThat(response.title()).isEqualTo("Глава вторая");
+        assertThat(response.estimatedDurationMinutes()).isEqualTo(180);
+        assertThat(response.status()).isEqualTo(GameSessionStatus.SCHEDULED);
+        // «Приду» давали на прежнее время — на новое его надо подтвердить заново.
+        assertThat(response.confirmedPlayerIds()).isEmpty();
+        assertThat(List.of(attending, declined))
+                .allMatch(participant ->
+                        participant.getAttendanceStatus() == SessionAttendanceStatus.UNMARKED);
+        verify(registrationRepository).saveAll(List.of(attending, declined));
+        verify(notificationService).notifyUsers(
+                Set.of(attending.getPlayerId(), declined.getPlayerId()), masterId,
+                NotificationType.SESSION_RESCHEDULED, null, null, null, "Глава вторая");
+    }
+
+    @Test
+    void renameWithoutRescheduleKeepsAttendanceQuiet() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        Instant start = Instant.parse("2099-01-10T13:00:00Z");
+        GameSession session = scheduledSession(start);
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        SessionRegistration attending = participant(sessionId, SessionAttendanceStatus.ATTENDING);
+        when(registrationRepository.findAllBySessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(List.of(attending));
+
+        GameSessionResponse response = service().update(masterId, gameId, sessionId,
+                new UpdateGameSessionRequest("Новое название", start, null));
+
+        assertThat(response.title()).isEqualTo("Новое название");
+        assertThat(response.confirmedPlayerIds()).containsExactly(attending.getPlayerId());
+        verify(registrationRepository, never()).saveAll(any());
+        verifyNoInteractions(notificationService);
+    }
+
+    @Test
+    void onlyScheduledSessionIsEdited() {
+        for (GameSessionStatus status : List.of(
+                GameSessionStatus.IN_PROGRESS,
+                GameSessionStatus.COMPLETED,
+                GameSessionStatus.CANCELLED)) {
+            UUID masterId = UUID.randomUUID();
+            UUID gameId = UUID.randomUUID();
+            UUID sessionId = UUID.randomUUID();
+            GameSession session = new GameSession();
+            session.setStatus(status);
+            Game game = game(masterId, null);
+            when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+            when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                    .thenReturn(Optional.of(session));
+
+            assertThatThrownBy(() -> service().update(masterId, gameId, sessionId,
+                    new UpdateGameSessionRequest(
+                            "Глава", Instant.parse("2099-01-10T15:00:00Z"), null)))
+                    .isInstanceOf(InvalidGameSessionStateException.class);
+        }
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void sessionIsNotMovedToThePast() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        GameSession session = scheduledSession(Instant.parse("2099-01-10T13:00:00Z"));
+        Game game = game(masterId, null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.findByIdAndGameId(sessionId, gameId))
+                .thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> service().update(masterId, gameId, sessionId,
+                new UpdateGameSessionRequest("Глава", Instant.now().minusSeconds(60), null)))
+                .isInstanceOf(InvalidGameSessionDateException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void strangerDoesNotEditSession() {
+        UUID gameId = UUID.randomUUID();
+        Game game = game(UUID.randomUUID(), null);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        assertThatThrownBy(() -> service().update(UUID.randomUUID(), gameId, UUID.randomUUID(),
+                new UpdateGameSessionRequest(
+                        "Глава", Instant.parse("2099-01-10T15:00:00Z"), null)))
+                .isInstanceOf(GameSessionAccessDeniedException.class);
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    /** Назначенная встреча с заданным началом. */
+    private static GameSession scheduledSession(Instant startsAt) {
+        GameSession session = new GameSession();
+        session.setTitle("Глава");
+        session.setStartsAt(startsAt);
+        session.setStatus(GameSessionStatus.SCHEDULED);
+
+        return session;
     }
 
     @Test

@@ -25,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,6 +60,24 @@ class GameSessionControllerSecurityTest {
                 .andExpect(status().isBadRequest());
         verify(service, never()).create(any(), any(), any());
         verify(service, never()).copy(any(), any(), any(), any());
+    }
+
+    @Test
+    void sessionIsNotEditedToPastStartOrByGuest() throws Exception {
+        UUID gameId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        String pastStart = Instant.now().minusSeconds(60).toString();
+
+        mockMvc.perform(patch("/api/v1/games/{gameId}/sessions/{sessionId}", gameId, sessionId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content("{\"title\":\"Сессия\",\"startsAt\":\"" + pastStart + "\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(patch("/api/v1/games/{gameId}/sessions/{sessionId}", gameId, sessionId)
+                        .contentType("application/json")
+                        .content("{\"title\":\"Сессия\",\"startsAt\":\"2099-01-10T15:00:00Z\"}"))
+                .andExpect(status().isUnauthorized());
+        verify(service, never()).update(any(), any(), any(), any());
     }
 
     @Test

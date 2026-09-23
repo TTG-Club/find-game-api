@@ -20,6 +20,7 @@ import club.ttg.findgame.session.api.CreateGameSessionRequest;
 import club.ttg.findgame.session.api.CreateGameSessionSeriesRequest;
 import club.ttg.findgame.session.api.CopyGameSessionRequest;
 import club.ttg.findgame.session.api.GameSessionResponse;
+import club.ttg.findgame.session.api.UpdateGameSessionRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +60,7 @@ public class GameSessionService {
     private static final String SESSION_STARTED_MESSAGE = "Сессия началась";
     private static final String SESSION_COMPLETED_MESSAGE = "Сессия завершена";
     private static final String SESSION_CANCELLED_MESSAGE = "Сессия отменена";
+    private static final String SESSION_RESCHEDULED_MESSAGE = "Сессия перенесена";
 
     public GameSessionService(
             GameRepository gameRepository,
@@ -263,6 +265,78 @@ public class GameSessionService {
                 NotificationType.SESSION_SCHEDULED);
 
         return toResponse(target, copiedPlayerIds);
+    }
+
+    /**
+     * Правит назначенную встречу: название, время и длительность.
+     *
+     * Перенос — не отмена: встреча остаётся той же, с теми же игроками и
+     * оплатой, и в истории не появляется несостоявшейся сессии. Но ответ
+     * «приду» давали на старое время, поэтому при смене времени отметки
+     * присутствия сбрасываются и игроки получают уведомление — каждый заново
+     * решает, успевает ли он. Правка только названия или длительности никого
+     * не тревожит.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @param sessionId Сессия.
+     * @param request Новые название, время и длительность.
+     * @return Изменённая сессия.
+     */
+    @Transactional
+    public GameSessionResponse update(
+            UUID masterId,
+            UUID gameId,
+            UUID sessionId,
+            UpdateGameSessionRequest request
+    ) {
+        OwnedSession owned = ownSession(masterId, gameId, sessionId);
+        GameSession session = owned.session();
+        if (session.getStatus() != GameSessionStatus.SCHEDULED) {
+            throw new InvalidGameSessionStateException(
+                    "Изменить можно только запланированную сессию");
+        }
+        validateFutureStart(request.startsAt());
+
+        boolean rescheduled = !request.startsAt().equals(session.getStartsAt());
+
+        session.setTitle(request.title());
+        session.setStartsAt(request.startsAt());
+        session.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
+
+        List<SessionRegistration> participants = participants(sessionId);
+
+        if (rescheduled) {
+            resetAttendance(participants);
+        }
+
+        Set<UUID> players = playerIds(participants);
+
+        GameSessionResponse response = toResponse(
+                sessionRepository.save(session), players, confirmedPlayerIds(participants));
+
+        if (rescheduled) {
+            notifyPlayers(owned, masterId, players, NotificationType.SESSION_RESCHEDULED);
+            publishToNexus(gameId, masterId, SESSION_RESCHEDULED_MESSAGE);
+        }
+
+        return response;
+    }
+
+    /** Снимает отметки «приду» и «не приду»: они давались на прежнее время. */
+    private void resetAttendance(List<SessionRegistration> participants) {
+        List<SessionRegistration> marked = participants.stream()
+                .filter(participant ->
+                        participant.getAttendanceStatus() != SessionAttendanceStatus.UNMARKED)
+                .toList();
+
+        if (marked.isEmpty()) {
+            return;
+        }
+
+        marked.forEach(participant ->
+                participant.setAttendanceStatus(SessionAttendanceStatus.UNMARKED));
+        registrationRepository.saveAll(marked);
     }
 
     /**
