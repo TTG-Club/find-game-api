@@ -55,7 +55,7 @@ public class PublicationScheduler {
         if (delivery.imageUrl() != null) {
             try {
                 ImageFile image = images.load(delivery.imageUrl());
-                Outcome outcome = sendMessages(delivery, digest.messages(games, delivery.platform(), true), image);
+                Outcome outcome = sendMessages(delivery, digest.messages(games, delivery.platform(), delivery.imageUrl()), image);
                 // Отказ до первой доставленной части: платформа ничего не опубликовала, и отправка без картинки не создаст дубль.
                 if (!outcome.status().equals("FAILED") || outcome.messageId() != null) return outcome;
                 imageProblem = outcome.detail();

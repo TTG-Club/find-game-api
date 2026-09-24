@@ -83,10 +83,14 @@ public class GameDigest {
     }
 
     /** Собирает один выпуск без картинки. */
-    List<DigestMessage> messages(List<GameEntry> games, Platform platform) { return messages(games, platform, false); }
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform) { return messages(games, platform, null); }
 
-    /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом. */
-    List<DigestMessage> messages(List<GameEntry> games, Platform platform, boolean withImage) {
+    /**
+     * Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом.
+     * imageUrl — адрес картинки канала или null.
+     */
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform, String imageUrl) {
+        boolean withImage = imageUrl != null;
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
         String head = platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction;
@@ -104,16 +108,20 @@ public class GameDigest {
         content.append("\n\n").append(catalogueInvitation(platform));
         String text = content.toString();
         return switch (platform) {
-            case TELEGRAM -> withImage ? telegramWithImage(head, text, selected.size()) : List.of(telegramText(text, selected.size()));
+            case TELEGRAM -> List.of(withImage ? telegramWithImage(text, imageUrl, selected.size()) : telegramText(text, selected.size()));
             case VK -> List.of(new DigestMessage(Map.of("message", text), selected.size(), withImage));
             case DISCORD -> List.of(message(text, selected.size(), withImage));
         };
     }
 
-    /** Подборка длиннее подписи к фото уходит отдельным сообщением сразу после фото со вступлением. */
-    private static List<DigestMessage> telegramWithImage(String head, String text, int gameCount) {
-        if (visibleLength(text) <= TELEGRAM_CAPTION_LENGTH) return List.of(telegramCaption(text, gameCount));
-        return List.of(telegramCaption(head, 0), telegramText(text.substring(head.length() + 2), gameCount));
+    /**
+     * Подборка в пределах подписи уходит фото с подписью. Длиннее подписи — одним текстовым сообщением,
+     * а картинка показывается над текстом крупным превью по её адресу: иначе выпуск распался бы на два сообщения.
+     */
+    private static DigestMessage telegramWithImage(String text, String imageUrl, int gameCount) {
+        if (visibleLength(text) <= TELEGRAM_CAPTION_LENGTH) return telegramCaption(text, gameCount);
+        return new DigestMessage(Map.of("text", text, "parse_mode", "HTML", "link_preview_options",
+                Map.of("url", imageUrl, "prefer_large_media", true, "show_above_text", true)), gameCount);
     }
 
     /** Текстовое сообщение Telegram без превью ссылок. */

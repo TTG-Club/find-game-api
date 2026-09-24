@@ -242,10 +242,10 @@ class PublicationImageTest {
         verify(limited, times(1)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
     }
 
-    /** Короткая подборка помещается в подпись к фото; длинная уходит следом отдельным сообщением. */
+    /** Короткая подборка помещается в подпись к фото; длинная уходит одним сообщением с картинкой над текстом. */
     @Test void telegramDigestRespectsCaptionLimit() {
         GameDigest digest = new GameDigest(mock(JdbcTemplate.class), "https://new.ttg.club");
-        List<DigestMessage> short1 = digest.messages(games(1), Platform.TELEGRAM, true);
+        List<DigestMessage> short1 = digest.messages(games(1), Platform.TELEGRAM, ADDRESS);
         assertThat(short1).singleElement().satisfies(message -> {
             assertThat(message.withImage()).isTrue();
             assertThat(message.gameCount()).isEqualTo(1);
@@ -253,20 +253,15 @@ class PublicationImageTest {
             assertThat(message.payload().get("caption").toString()).startsWith("Ищете компанию").contains("Игра 0", "Подробнее</a>");
         });
         List<GameEntry> eight = games(8);
-        List<DigestMessage> text = digest.messages(eight, Platform.TELEGRAM);
-        List<DigestMessage> split = digest.messages(eight, Platform.TELEGRAM, true);
-        assertThat(split).hasSize(2);
-        String caption = split.getFirst().payload().get("caption").toString();
-        String rest = split.get(1).payload().get("text").toString();
-        assertThat(split.getFirst().withImage()).isTrue();
-        assertThat(split.getFirst().gameCount()).isZero();
-        assertThat(caption).startsWith("Ищете компанию").doesNotContain("Игра 0");
-        assertThat(GameDigest.visibleLength(caption)).isLessThanOrEqualTo(GameDigest.TELEGRAM_CAPTION_LENGTH);
-        assertThat(split.get(1).withImage()).isFalse();
-        assertThat(split.get(1).gameCount()).isEqualTo(8);
-        assertThat(split.get(1).payload()).containsEntry("parse_mode", "HTML").containsKey("link_preview_options");
-        assertThat(rest).startsWith("Игра 0");
-        assertThat(caption + "\n\n" + rest).isEqualTo(text.getFirst().payload().get("text"));
+        DigestMessage text = digest.messages(eight, Platform.TELEGRAM).getFirst();
+        assertThat(GameDigest.visibleLength(text.payload().get("text").toString())).isGreaterThan(GameDigest.TELEGRAM_CAPTION_LENGTH);
+        assertThat(digest.messages(eight, Platform.TELEGRAM, ADDRESS)).singleElement().satisfies(message -> {
+            // Картинка приходит превью по адресу, а не файлом: сообщение отправляется через sendMessage.
+            assertThat(message.withImage()).isFalse();
+            assertThat(message.gameCount()).isEqualTo(8);
+            assertThat(message.payload()).containsEntry("text", text.payload().get("text")).containsEntry("parse_mode", "HTML")
+                    .containsEntry("link_preview_options", Map.of("url", ADDRESS, "prefer_large_media", true, "show_above_text", true));
+        });
         assertThat(GameDigest.visibleLength("<a href=\"https://x\">Подробнее</a> &#38;")).isEqualTo("Подробнее &".length());
     }
 
@@ -276,7 +271,7 @@ class PublicationImageTest {
         List<GameEntry> eight = games(8);
         for (Platform platform : List.of(Platform.DISCORD, Platform.VK)) {
             DigestMessage plain = digest.messages(eight, platform).getFirst();
-            assertThat(digest.messages(eight, platform, true)).singleElement().satisfies(message -> {
+            assertThat(digest.messages(eight, platform, ADDRESS)).singleElement().satisfies(message -> {
                 assertThat(message.withImage()).isTrue();
                 assertThat(message.payload()).isEqualTo(plain.payload());
             });
@@ -289,7 +284,7 @@ class PublicationImageTest {
         Fixture fixture = new Fixture(Platform.TELEGRAM);
         when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         List<DigestMessage> parts = List.of(new DigestMessage(Map.of("caption", "Вступление"), 0, true), new DigestMessage(Map.of("text", "Игры"), 1));
-        when(fixture.digest.messages(fixture.games, Platform.TELEGRAM, true)).thenReturn(parts);
+        when(fixture.digest.messages(fixture.games, Platform.TELEGRAM, ADDRESS)).thenReturn(parts);
         when(fixture.telegram.send(anyString(), anyMap(), any())).thenReturn(sent("1"), sent("2"));
         fixture.scheduler.publish(fixture.delivery);
         verify(fixture.telegram).send("chat", parts.get(0).payload(), IMAGE);
@@ -304,7 +299,7 @@ class PublicationImageTest {
         when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         DigestMessage withImage = new DigestMessage(Map.of("content", "Подборка"), 1, true);
         DigestMessage plain = new DigestMessage(Map.of("content", "Подборка"), 1);
-        when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(withImage));
+        when(fixture.digest.messages(fixture.games, Platform.DISCORD, ADDRESS)).thenReturn(List.of(withImage));
         when(fixture.digest.messages(fixture.games, Platform.DISCORD)).thenReturn(List.of(plain));
         when(fixture.discord.send(anyString(), anyMap(), eq(IMAGE))).thenReturn(new Outcome("FAILED", "Discord отклонил отправку (HTTP 400)", null, null));
         when(fixture.discord.send(anyString(), anyMap(), isNull())).thenReturn(sent("123456789012345678"));
@@ -327,7 +322,7 @@ class PublicationImageTest {
                 new Outcome("RETRY", "Лимит", null, java.time.Instant.now().plusSeconds(5)))) {
             Fixture fixture = new Fixture(Platform.DISCORD);
             when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
-            when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1, true)));
+            when(fixture.digest.messages(fixture.games, Platform.DISCORD, ADDRESS)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1, true)));
             when(fixture.discord.send(anyString(), anyMap(), any())).thenReturn(ambiguous);
             fixture.scheduler.publish(fixture.delivery);
             verify(fixture.discord, times(1)).send(anyString(), anyMap(), any());
