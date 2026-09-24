@@ -83,19 +83,25 @@ public class GameDigest {
     }
 
     /** Собирает один выпуск без картинки. */
-    List<DigestMessage> messages(List<GameEntry> games, Platform platform) { return messages(games, platform, null); }
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform) { return messages(games, platform, false); }
 
-    /**
-     * Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом.
-     * imageUrl — адрес картинки канала или null.
-     */
-    List<DigestMessage> messages(List<GameEntry> games, Platform platform, String imageUrl) {
-        boolean withImage = imageUrl != null;
+    /** Собирает один выпуск: Discord до 2000 символов, Telegram с экранированными ссылками, VK обычным текстом. */
+    List<DigestMessage> messages(List<GameEntry> games, Platform platform, boolean withImage) {
         List<GameEntry> selected = fit(games);
         if (selected.isEmpty()) return List.of();
-        String head = platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction;
-        StringBuilder content = new StringBuilder(head);
-        for (GameEntry game : selected) {
+        if (platform == Platform.TELEGRAM && withImage) return List.of(telegramCaption(selected));
+        String text = text(selected, platform);
+        return switch (platform) {
+            case TELEGRAM -> List.of(telegramText(text, selected.size()));
+            case VK -> List.of(new DigestMessage(Map.of("message", text), selected.size(), withImage));
+            case DISCORD -> List.of(message(text, selected.size(), withImage));
+        };
+    }
+
+    /** Текст выпуска: вступление, игры и приглашение в каталог в формате платформы. */
+    private String text(List<GameEntry> games, Platform platform) {
+        StringBuilder content = new StringBuilder(platform == Platform.TELEGRAM ? HtmlUtils.htmlEscapeDecimal(introduction) : introduction);
+        for (GameEntry game : games) {
             content.append("\n\n");
             switch (platform) {
                 case TELEGRAM -> content.append(HtmlUtils.htmlEscapeDecimal(gameDetails(game))).append("\n<a href=\"")
@@ -105,23 +111,18 @@ public class GameDigest {
                 case DISCORD -> content.append(gameBlock(game));
             }
         }
-        content.append("\n\n").append(catalogueInvitation(platform));
-        String text = content.toString();
-        return switch (platform) {
-            case TELEGRAM -> List.of(withImage ? telegramWithImage(text, imageUrl, selected.size()) : telegramText(text, selected.size()));
-            case VK -> List.of(new DigestMessage(Map.of("message", text), selected.size(), withImage));
-            case DISCORD -> List.of(message(text, selected.size(), withImage));
-        };
+        return content.append("\n\n").append(catalogueInvitation(platform)).toString();
     }
 
     /**
-     * Подборка в пределах подписи уходит фото с подписью. Длиннее подписи — одним текстовым сообщением,
-     * а картинка показывается над текстом крупным превью по её адресу: иначе выпуск распался бы на два сообщения.
+     * Фото с подписью одним сообщением: последние игры подборки убираются, пока подпись не уложится
+     * в лимит Telegram. Одна игра помещается всегда: поля ограничены, и подпись с ней не длиннее ~600 символов.
      */
-    private static DigestMessage telegramWithImage(String text, String imageUrl, int gameCount) {
-        if (visibleLength(text) <= TELEGRAM_CAPTION_LENGTH) return telegramCaption(text, gameCount);
-        return new DigestMessage(Map.of("text", text, "parse_mode", "HTML", "link_preview_options",
-                Map.of("url", imageUrl, "prefer_large_media", true, "show_above_text", true)), gameCount);
+    private DigestMessage telegramCaption(List<GameEntry> games) {
+        int count = games.size();
+        String caption = text(games, Platform.TELEGRAM);
+        while (count > 1 && visibleLength(caption) > TELEGRAM_CAPTION_LENGTH) caption = text(games.subList(0, --count), Platform.TELEGRAM);
+        return telegramCaption(caption, count);
     }
 
     /** Текстовое сообщение Telegram без превью ссылок. */

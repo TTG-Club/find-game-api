@@ -242,10 +242,10 @@ class PublicationImageTest {
         verify(limited, times(1)).send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
     }
 
-    /** Короткая подборка помещается в подпись к фото; длинная уходит одним сообщением с картинкой над текстом. */
+    /** Подборка с картинкой — всегда одно фото с подписью: лишние игры с конца убираются до лимита подписи. */
     @Test void telegramDigestRespectsCaptionLimit() {
         GameDigest digest = new GameDigest(mock(JdbcTemplate.class), "https://new.ttg.club");
-        List<DigestMessage> short1 = digest.messages(games(1), Platform.TELEGRAM, ADDRESS);
+        List<DigestMessage> short1 = digest.messages(games(1), Platform.TELEGRAM, true);
         assertThat(short1).singleElement().satisfies(message -> {
             assertThat(message.withImage()).isTrue();
             assertThat(message.gameCount()).isEqualTo(1);
@@ -253,16 +253,31 @@ class PublicationImageTest {
             assertThat(message.payload().get("caption").toString()).startsWith("Ищете компанию").contains("Игра 0", "Подробнее</a>");
         });
         List<GameEntry> eight = games(8);
-        DigestMessage text = digest.messages(eight, Platform.TELEGRAM).getFirst();
-        assertThat(GameDigest.visibleLength(text.payload().get("text").toString())).isGreaterThan(GameDigest.TELEGRAM_CAPTION_LENGTH);
-        assertThat(digest.messages(eight, Platform.TELEGRAM, ADDRESS)).singleElement().satisfies(message -> {
-            // Картинка приходит превью по адресу, а не файлом: сообщение отправляется через sendMessage.
-            assertThat(message.withImage()).isFalse();
-            assertThat(message.gameCount()).isEqualTo(8);
-            assertThat(message.payload()).containsEntry("text", text.payload().get("text")).containsEntry("parse_mode", "HTML")
-                    .containsEntry("link_preview_options", Map.of("url", ADDRESS, "prefer_large_media", true, "show_above_text", true));
+        String text = digest.messages(eight, Platform.TELEGRAM).getFirst().payload().get("text").toString();
+        assertThat(GameDigest.visibleLength(text)).isGreaterThan(GameDigest.TELEGRAM_CAPTION_LENGTH);
+        assertThat(digest.messages(eight, Platform.TELEGRAM, true)).singleElement().satisfies(message -> {
+            String caption = message.payload().get("caption").toString();
+            int count = message.gameCount();
+            assertThat(message.withImage()).isTrue();
+            assertThat(count).isBetween(1, 7);
+            assertThat(GameDigest.visibleLength(caption)).isLessThanOrEqualTo(GameDigest.TELEGRAM_CAPTION_LENGTH);
+            // Убраны только последние игры, и убрано не больше нужного: следующая игра уже не поместилась бы.
+            assertThat(caption).contains("Игра " + (count - 1)).doesNotContain("Игра " + count).endsWith(text.substring(text.lastIndexOf("\n\n")));
+            String longer = digest.messages(eight.subList(0, count + 1), Platform.TELEGRAM).getFirst().payload().get("text").toString();
+            assertThat(GameDigest.visibleLength(longer)).isGreaterThan(GameDigest.TELEGRAM_CAPTION_LENGTH);
         });
         assertThat(GameDigest.visibleLength("<a href=\"https://x\">Подробнее</a> &#38;")).isEqualTo("Подробнее &".length());
+    }
+
+    /** Подборка заранее ужимает длинные поля, поэтому даже в худшем случае из восьми игр убираются не больше трёх. */
+    @Test void telegramCaptionDropsAtMostThreeGames() {
+        GameDigest digest = new GameDigest(mock(JdbcTemplate.class), "https://new.ttg.club");
+        GameEntry longest = new GameEntry(UUID.randomUUID(), "Н".repeat(200), "С".repeat(200), 0, 10,
+                "https://new.ttg.club/games/" + UUID.randomUUID(), "Ж".repeat(200), "");
+        assertThat(digest.messages(java.util.Collections.nCopies(8, longest), Platform.TELEGRAM, true)).singleElement().satisfies(message -> {
+            assertThat(message.gameCount()).isBetween(5, 7);
+            assertThat(GameDigest.visibleLength(message.payload().get("caption").toString())).isLessThanOrEqualTo(GameDigest.TELEGRAM_CAPTION_LENGTH);
+        });
     }
 
     /** Discord и VK получают тот же текст одним сообщением, отмеченным для картинки. */
@@ -271,7 +286,7 @@ class PublicationImageTest {
         List<GameEntry> eight = games(8);
         for (Platform platform : List.of(Platform.DISCORD, Platform.VK)) {
             DigestMessage plain = digest.messages(eight, platform).getFirst();
-            assertThat(digest.messages(eight, platform, ADDRESS)).singleElement().satisfies(message -> {
+            assertThat(digest.messages(eight, platform, true)).singleElement().satisfies(message -> {
                 assertThat(message.withImage()).isTrue();
                 assertThat(message.payload()).isEqualTo(plain.payload());
             });
@@ -284,7 +299,7 @@ class PublicationImageTest {
         Fixture fixture = new Fixture(Platform.TELEGRAM);
         when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         List<DigestMessage> parts = List.of(new DigestMessage(Map.of("caption", "Вступление"), 0, true), new DigestMessage(Map.of("text", "Игры"), 1));
-        when(fixture.digest.messages(fixture.games, Platform.TELEGRAM, ADDRESS)).thenReturn(parts);
+        when(fixture.digest.messages(fixture.games, Platform.TELEGRAM, true)).thenReturn(parts);
         when(fixture.telegram.send(anyString(), anyMap(), any())).thenReturn(sent("1"), sent("2"));
         fixture.scheduler.publish(fixture.delivery);
         verify(fixture.telegram).send("chat", parts.get(0).payload(), IMAGE);
@@ -299,7 +314,7 @@ class PublicationImageTest {
         when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
         DigestMessage withImage = new DigestMessage(Map.of("content", "Подборка"), 1, true);
         DigestMessage plain = new DigestMessage(Map.of("content", "Подборка"), 1);
-        when(fixture.digest.messages(fixture.games, Platform.DISCORD, ADDRESS)).thenReturn(List.of(withImage));
+        when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(withImage));
         when(fixture.digest.messages(fixture.games, Platform.DISCORD)).thenReturn(List.of(plain));
         when(fixture.discord.send(anyString(), anyMap(), eq(IMAGE))).thenReturn(new Outcome("FAILED", "Discord отклонил отправку (HTTP 400)", null, null));
         when(fixture.discord.send(anyString(), anyMap(), isNull())).thenReturn(sent("123456789012345678"));
@@ -322,7 +337,7 @@ class PublicationImageTest {
                 new Outcome("RETRY", "Лимит", null, java.time.Instant.now().plusSeconds(5)))) {
             Fixture fixture = new Fixture(Platform.DISCORD);
             when(fixture.images.load(ADDRESS)).thenReturn(IMAGE);
-            when(fixture.digest.messages(fixture.games, Platform.DISCORD, ADDRESS)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1, true)));
+            when(fixture.digest.messages(fixture.games, Platform.DISCORD, true)).thenReturn(List.of(new DigestMessage(Map.of("content", "Подборка"), 1, true)));
             when(fixture.discord.send(anyString(), anyMap(), any())).thenReturn(ambiguous);
             fixture.scheduler.publish(fixture.delivery);
             verify(fixture.discord, times(1)).send(anyString(), anyMap(), any());
