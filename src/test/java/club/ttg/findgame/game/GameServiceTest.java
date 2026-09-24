@@ -307,6 +307,53 @@ class GameServiceTest {
     }
 
     @Test
+    void freeMasterCannotKeepSecondUnfinishedGame() {
+        GameService service = service();
+        UUID masterId = UUID.randomUUID();
+        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+                .thenReturn(1L);
+
+        assertThatThrownBy(() -> service.create(
+                masterId, "game-master", ACCESS_TOKEN, request(3, 5, GameVisibility.PUBLIC)))
+                .isInstanceOf(ActiveGameLimitExceededException.class);
+
+        verify(repository, never()).save(any(Game.class));
+    }
+
+    @Test
+    void subscriberKeepsUpToTenUnfinishedGames() {
+        GameService service = service();
+        UUID masterId = UUID.randomUUID();
+        when(subscriptionStatusClient.status("game-master")).thenReturn(
+                Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
+        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+                .thenReturn(9L);
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service.create(
+                masterId, "game-master", ACCESS_TOKEN, request(3, 5, GameVisibility.PUBLIC));
+
+        assertThat(response.maxPlayers()).isEqualTo(5);
+    }
+
+    @Test
+    void subscriberCannotKeepEleventhUnfinishedGame() {
+        GameService service = service();
+        UUID masterId = UUID.randomUUID();
+        when(subscriptionStatusClient.status("game-master")).thenReturn(
+                Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
+        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+                .thenReturn(10L);
+
+        assertThatThrownBy(() -> service.create(
+                masterId, "game-master", ACCESS_TOKEN, request(3, 5, GameVisibility.PUBLIC)))
+                .isInstanceOf(ActiveGameLimitExceededException.class)
+                .hasMessageContaining("10");
+
+        verify(repository, never()).save(any(Game.class));
+    }
+
+    @Test
     void rejectsPlayersToStartGreaterThanMaximum() {
         GameService service = service();
 

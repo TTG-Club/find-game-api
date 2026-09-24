@@ -85,7 +85,7 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
             @Param("now") Instant now,
             Pageable pageable);
 
-    boolean existsByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
+    long countByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
 
     Page<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId, Pageable pageable);
 

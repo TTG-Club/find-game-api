@@ -55,6 +55,14 @@ public class GameService {
     private static final int FREE_RAISES_PER_DAY = 1;
     private static final int SUBSCRIBER_RAISES_PER_DAY = 3;
 
+    /**
+     * Сколько незавершённых игр (черновик или открытая) может вести мастер.
+     * Подписка расширяет предел, но не снимает его: иначе один мастер мог бы
+     * завалить список играми.
+     */
+    private static final int FREE_MAX_ACTIVE_GAMES = 1;
+    private static final int SUBSCRIBER_MAX_ACTIVE_GAMES = 10;
+
     /** Окно, в котором считаются поднятия. */
     private static final Duration RAISE_WINDOW = Duration.ofDays(1);
 
@@ -804,13 +812,14 @@ public class GameService {
     }
 
     private void enforceActiveGameLimit(UUID masterId, String username) {
-        if (hasActiveSubscription(username)) {
-            return;
-        }
+        boolean subscriptionActive = hasActiveSubscription(username);
+        int limit = subscriptionActive ? SUBSCRIBER_MAX_ACTIVE_GAMES : FREE_MAX_ACTIVE_GAMES;
 
         creationLockService.lock(masterId);
-        if (repository.existsByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED)) {
-            throw new ActiveGameLimitExceededException();
+        if (repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED) >= limit) {
+            throw subscriptionActive
+                    ? ActiveGameLimitExceededException.forSubscriber(limit)
+                    : ActiveGameLimitExceededException.forFreeMaster();
         }
     }
 

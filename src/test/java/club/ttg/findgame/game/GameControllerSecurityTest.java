@@ -343,7 +343,7 @@ class GameControllerSecurityTest {
     @Test
     void activeGameLimitReturnsConflict() throws Exception {
         given(service.create(any(UUID.class), anyString(), anyString(), any()))
-                .willThrow(new ActiveGameLimitExceededException());
+                .willThrow(ActiveGameLimitExceededException.forFreeMaster());
 
         mockMvc.perform(post("/api/v1/games")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
