@@ -40,6 +40,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest({GameController.class, GameSystemController.class})
@@ -350,6 +351,20 @@ class GameControllerSecurityTest {
                         .contentType("application/json")
                         .content(validRequest()))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void unreadableBodyExplainsItself() throws Exception {
+        // Раньше 400 уходил с пустым телом, и сайт показывал текст запроса.
+        mockMvc.perform(post("/api/v1/games")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(UUID.randomUUID()))
+                        .contentType("application/json")
+                        .content(validRequest().replace("\"ONLINE\"", "\"LIVE\"")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Запрос не разобран"))
+                .andExpect(jsonPath("$.detail").isNotEmpty());
+
+        verify(service, never()).create(any(), any(), any(), any());
     }
 
     @Test
