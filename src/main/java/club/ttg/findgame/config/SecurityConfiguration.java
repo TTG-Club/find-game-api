@@ -108,6 +108,7 @@ public class SecurityConfiguration {
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(
+                "https://new.ttg.club",
                 "https://ttg.club",
                 "https://5e14.ttg.club",
                 "https://dev.5e14.ttg.club"
