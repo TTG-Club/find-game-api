@@ -116,8 +116,13 @@ public class SecurityConfiguration {
         configuration.setAllowedMethods(List.of("GET"));
         configuration.setAllowedHeaders(List.of("*"));
 
+        // Игры не только читают, но и создают/правят с сайта — с токеном в заголовке.
+        CorsConfiguration gamesConfiguration = new CorsConfiguration(configuration);
+        gamesConfiguration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/api/v1/games", configuration);
+        source.registerCorsConfiguration("/api/v1/games", gamesConfiguration);
+        source.registerCorsConfiguration("/api/v1/games/**", gamesConfiguration);
         source.registerCorsConfiguration("/api/v1/game-systems", configuration);
         return source;
     }
