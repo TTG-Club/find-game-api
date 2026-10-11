@@ -15,6 +15,7 @@ import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionStatus;
 import club.ttg.findgame.session.GameSessionRepository;
+import club.ttg.findgame.session.SessionPaymentType;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +29,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Set;
 import java.util.Optional;
@@ -375,7 +377,8 @@ class GameServiceTest {
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
 
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
                 .isInstanceOf(InvalidGameDetailsException.class);
@@ -394,7 +397,8 @@ class GameServiceTest {
                 source.playersToStart(), source.maxPlayers(), source.minAge(), source.maxAge(),
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
 
         // Онлайн собирается по ссылке: адрес стола ему не нужен.
         assertThatThrownBy(() -> service.create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
@@ -951,7 +955,8 @@ class GameServiceTest {
                 source.startingLevel(), source.crossplayAllowed(), source.requiresCompletePlayerProfile(),
                 source.durationType(),
                 source.costType(), source.visibility(), source.onlinePlatform(),
-                source.customSystem(), source.customGenre());
+                source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
     }
 
     @Test
@@ -980,12 +985,120 @@ class GameServiceTest {
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
                 true, source.durationType(), source.costType(), source.visibility(), source.onlinePlatform(),
-                source.customSystem(), source.customGenre());
+                source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
 
         GameResponse response = service().create(
                 UUID.randomUUID(), "game-master", ACCESS_TOKEN, request);
 
         assertThat(response.requiresCompletePlayerProfile()).isTrue();
+    }
+
+    @Test
+    void createsPaidGameWithDefaultPrice() {
+        when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameResponse response = service().create(
+                UUID.randomUUID(), "game-master", ACCESS_TOKEN, request(3, 5, GameVisibility.PUBLIC));
+
+        assertThat(response.priceAmount()).isEqualByComparingTo("1500.00");
+        assertThat(response.priceCurrency()).isEqualTo("RUB");
+        assertThat(response.paymentType()).isEqualTo(SessionPaymentType.PREPAYMENT);
+    }
+
+    @Test
+    void paidGameCannotBeCreatedWithoutDefaultPrice() {
+        CreateGameRequest request = withPrice(request(3, 5, GameVisibility.PUBLIC), null, null, null);
+
+        // Без цены игрок не узнает, сколько стоит встреча, пока мастер её не назначит.
+        assertThatThrownBy(() -> service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
+                .isInstanceOf(InvalidGameDetailsException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void freeGameCannotHaveDefaultPrice() {
+        CreateGameRequest source = request(3, 5, GameVisibility.PUBLIC);
+        CreateGameRequest request = new CreateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.requiresCompletePlayerProfile(), source.durationType(), GameCostType.FREE,
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
+
+        assertThatThrownBy(() -> service().create(UUID.randomUUID(), "game-master", ACCESS_TOKEN, request))
+                .isInstanceOf(InvalidGameDetailsException.class);
+    }
+
+    @Test
+    void legacyPaidGameStaysWithoutPriceWhenOldClientEditsIt() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setCostType(GameCostType.PAID);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        // Игра заведена до цены по умолчанию: правка без цены её не ломает,
+        // и клиент по-прежнему показывает «Не указано».
+        GameResponse response = service().update(
+                masterId, "game-master", gameId, paidUpdate(null, null, null));
+
+        assertThat(response.priceAmount()).isNull();
+        assertThat(response.priceCurrency()).isNull();
+        assertThat(response.paymentType()).isNull();
+    }
+
+    @Test
+    void paidGameKeepsDefaultPriceWhenOldClientOmitsIt() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setCostType(GameCostType.PAID);
+        game.setPriceAmount(new BigDecimal("1500.00"));
+        game.setPriceCurrency("RUB");
+        game.setPaymentType(SessionPaymentType.PREPAYMENT);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        GameResponse kept = service().update(masterId, "game-master", gameId, paidUpdate(null, null, null));
+        assertThat(kept.priceAmount()).isEqualByComparingTo("1500.00");
+
+        GameResponse changed = service().update(masterId, "game-master", gameId,
+                paidUpdate(new BigDecimal("2000.00"), "RUB", SessionPaymentType.POSTPAYMENT));
+        assertThat(changed.priceAmount()).isEqualByComparingTo("2000.00");
+        assertThat(changed.paymentType()).isEqualTo(SessionPaymentType.POSTPAYMENT);
+    }
+
+    private CreateGameRequest withPrice(
+            CreateGameRequest source, BigDecimal amount, String currency, SessionPaymentType paymentType) {
+        return new CreateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                amount, currency, paymentType);
+    }
+
+    /** Правка платной игры с заданной ценой: остальное совпадает с игрой. */
+    private UpdateGameRequest paidUpdate(BigDecimal amount, String currency, SessionPaymentType paymentType) {
+        UpdateGameRequest source = updateRequest();
+
+        return new UpdateGameRequest(
+                source.title(), source.system(), source.imageUrl(), source.virtualTableUrl(),
+                source.masterChatUrl(), source.gameChatUrl(), source.genres(),
+                source.description(), source.requirements(), source.allowedSources(), source.type(),
+                source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
+                source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
+                source.requiresCompletePlayerProfile(), source.durationType(), GameCostType.PAID,
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                amount, currency, paymentType);
     }
 
     @Test
@@ -1054,7 +1167,7 @@ class GameServiceTest {
                 null,
                 GameDurationType.CAMPAIGN,
                 GameCostType.FREE,
-                GameVisibility.PUBLIC, platform, null, null);
+                GameVisibility.PUBLIC, platform, null, null, null, null, null);
     }
 
     private Game raisableGame(UUID masterId, Instant listPositionAt) {
@@ -1075,7 +1188,8 @@ class GameServiceTest {
                 source.playersToStart(), source.maxPlayers(), minAge, maxAge, source.startingLevel(),
                 source.crossplayAllowed(), source.requiresCompletePlayerProfile(), source.durationType(),
                 source.costType(), source.visibility(), source.onlinePlatform(),
-                source.customSystem(), source.customGenre());
+                source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
     }
 
     private CreateGameRequest withSystem(CreateGameRequest source, String system) {
@@ -1086,7 +1200,8 @@ class GameServiceTest {
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
                 source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre());
+                source.visibility(), source.onlinePlatform(), source.customSystem(), source.customGenre(),
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
     }
 
     private CreateGameRequest withOwnSystemAndGenre(
@@ -1098,7 +1213,8 @@ class GameServiceTest {
                 source.city(), source.venue(), source.playersToStart(), source.maxPlayers(),
                 source.minAge(), source.maxAge(), source.startingLevel(), source.crossplayAllowed(),
                 source.requiresCompletePlayerProfile(), source.durationType(), source.costType(),
-                source.visibility(), source.onlinePlatform(), customSystem, customGenre);
+                source.visibility(), source.onlinePlatform(), customSystem, customGenre,
+                source.priceAmount(), source.priceCurrency(), source.paymentType());
     }
 
     private CreateGameRequest request(int playersToStart, int maxPlayers, GameVisibility visibility) {
@@ -1131,7 +1247,8 @@ class GameServiceTest {
                 false,
                 GameDurationType.CAMPAIGN,
                 GameCostType.PAID,
-                visibility, platform, null, null
+                visibility, platform, null, null,
+                new BigDecimal("1500.00"), "RUB", SessionPaymentType.PREPAYMENT
         );
     }
 }

@@ -55,6 +55,10 @@ public interface GameMapper {
     @Mapping(target = "genres", ignore = true)
     @Mapping(target = "customSystem", ignore = true)
     @Mapping(target = "customGenre", ignore = true)
+    // Цену по умолчанию сервис сверяет с платностью и старыми клиентами сам.
+    @Mapping(target = "priceAmount", ignore = true)
+    @Mapping(target = "priceCurrency", ignore = true)
+    @Mapping(target = "paymentType", ignore = true)
     @Mapping(
             target = "crossplayAllowed",
             expression = "java(Boolean.TRUE.equals(request.crossplayAllowed()))"

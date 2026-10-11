@@ -17,7 +17,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import club.ttg.findgame.session.SessionPaymentType;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -137,6 +139,20 @@ public class Game {
     @Enumerated(EnumType.STRING)
     @Column(name = "cost_type", nullable = false, length = 20)
     private GameCostType costType;
+
+    /**
+     * Стоимость сессии по умолчанию. Есть только у платной игры: игрок видит
+     * цену до первой встречи, а сессия без своей цены берёт эту.
+     */
+    @Column(name = "price_amount", precision = 12, scale = 2)
+    private BigDecimal priceAmount;
+
+    @Column(name = "price_currency", length = 3)
+    private String priceCurrency;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_type", length = 20)
+    private SessionPaymentType paymentType;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

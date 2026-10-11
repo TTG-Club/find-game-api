@@ -44,6 +44,8 @@ public record CreateGameSessionSeriesRequest(
         @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2) BigDecimal priceAmount,
         @Pattern(regexp = "[A-Z]{3}", message = "должно содержать трёхбуквенный код валюты ISO 4217")
         String priceCurrency,
-        SessionPaymentType paymentType
+        SessionPaymentType paymentType,
+        /** Бесплатная серия платной игры; без отметки берётся стоимость игры. */
+        Boolean free
 ) {
 }
