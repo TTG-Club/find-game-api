@@ -18,6 +18,7 @@ import club.ttg.findgame.registration.RegistrationStatus;
 import club.ttg.findgame.session.GameSession;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
+import club.ttg.findgame.session.SessionPaymentType;
 import club.ttg.findgame.subscription.SubscriptionStatusClient;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
@@ -26,6 +27,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -122,6 +124,8 @@ public class GameService {
         validateDetails(request.type(), request.city(), request.venue(), request.minAge(), request.maxAge());
         requireGameSystem(request.system());
         String customSystem = resolveCustomSystem(request.system(), request.customSystem());
+        validateDefaultPrice(request.costType(), request.priceAmount(),
+                request.priceCurrency(), request.paymentType());
         enforceMaxPlayersLimit(username, request.maxPlayers());
         enforceActiveGameLimit(masterId, username);
 
@@ -180,6 +184,7 @@ public class GameService {
         enforceMaxPlayersLimit(username, request.maxPlayers());
         validateCostTypeChange(game, request.costType());
         validatePlayerCountChange(gameId, request.playersToStart(), request.maxPlayers());
+        applyDefaultPrice(game, request);
 
         GameVisibility previousVisibility = game.getVisibility();
         mapper.updateEntity(game, request);
@@ -234,6 +239,51 @@ public class GameService {
             throw new InvalidGameDetailsException(
                     "Платность нельзя изменить, когда у игры уже есть сессии");
         }
+    }
+
+    /**
+     * Стоимость сессии по умолчанию: у платной игры обязательна целиком —
+     * без неё игрок не узнает цену до первой встречи, — у бесплатной её нет.
+     */
+    private static void validateDefaultPrice(
+            GameCostType costType,
+            BigDecimal priceAmount,
+            String priceCurrency,
+            SessionPaymentType paymentType
+    ) {
+        int filled = (priceAmount != null ? 1 : 0)
+                + (priceCurrency != null ? 1 : 0)
+                + (paymentType != null ? 1 : 0);
+        if (costType == GameCostType.FREE && filled > 0) {
+            throw new InvalidGameDetailsException(
+                    "У бесплатной игры стоимость, валюта и тип оплаты не указываются");
+        }
+        if (costType == GameCostType.PAID && filled < 3) {
+            throw new InvalidGameDetailsException(
+                    "У платной игры укажите стоимость сессии, валюту и тип оплаты");
+        }
+    }
+
+    /**
+     * Переносит цену по умолчанию из правки. Платная игра, оставшаяся платной,
+     * без всех трёх полей сохраняет прежнюю цену: так форма старого клиента,
+     * не знающая о цене, её не стирает. Ставшая платной обязана цену указать,
+     * ставшая бесплатной — теряет.
+     */
+    private static void applyDefaultPrice(Game game, UpdateGameRequest request) {
+        boolean keepCurrent = game.getCostType() == GameCostType.PAID
+                && request.costType() == GameCostType.PAID
+                && request.priceAmount() == null
+                && request.priceCurrency() == null
+                && request.paymentType() == null;
+        if (keepCurrent) {
+            return;
+        }
+        validateDefaultPrice(request.costType(), request.priceAmount(),
+                request.priceCurrency(), request.paymentType());
+        game.setPriceAmount(request.priceAmount());
+        game.setPriceCurrency(request.priceCurrency());
+        game.setPaymentType(request.paymentType());
     }
 
     /** Сохраняет выбор старых клиентов, задаёт значение по умолчанию и очищает поле вне онлайн-игр. */

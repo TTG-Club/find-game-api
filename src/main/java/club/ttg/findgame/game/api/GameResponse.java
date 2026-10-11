@@ -8,7 +8,9 @@ import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import club.ttg.findgame.registration.RegistrationStatus;
+import club.ttg.findgame.session.SessionPaymentType;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
@@ -85,7 +87,16 @@ public record GameResponse(
          * ответ не несёт: игрок заранее знает, что стол есть и откроется ему
          * после принятия.
          */
-        boolean hasVirtualTable
+        boolean hasVirtualTable,
+        /**
+         * Стоимость сессии по умолчанию у платной игры. Видна и без
+         * назначенных встреч; точная цена ближайшей — в {@code nextSession}.
+         * Пусто у бесплатной игры и у платной, заведённой до появления цены
+         * по умолчанию: там клиент пишет «Не указано».
+         */
+        BigDecimal priceAmount,
+        String priceCurrency,
+        SessionPaymentType paymentType
 ) {
 
     /**
@@ -100,7 +111,8 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
+                priceAmount, priceCurrency, paymentType);
     }
 
     /**
@@ -115,7 +127,8 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
+                nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
+                priceAmount, priceCurrency, paymentType);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -127,6 +140,7 @@ public record GameResponse(
                 minAge, maxAge, startingLevel, crossplayAllowed, requiresCompletePlayerProfile,
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
-                session, registrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable);
+                session, registrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
+                priceAmount, priceCurrency, paymentType);
     }
 }

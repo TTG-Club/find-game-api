@@ -6,7 +6,10 @@ import club.ttg.findgame.game.GameDurationType;
 import club.ttg.findgame.game.GameOnlinePlatform;
 import club.ttg.findgame.game.GameType;
 import club.ttg.findgame.game.GameVisibility;
+import club.ttg.findgame.session.SessionPaymentType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -15,6 +18,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.hibernate.validator.constraints.URL;
 
+import java.math.BigDecimal;
 import java.util.Set;
 
 /**
@@ -99,6 +103,13 @@ public record UpdateGameRequest(
         String customSystem,
         @Size(max = 100)
         @Schema(description = "Жанр, которого нет в списке жанров", example = "Хоррор-комедия")
-        String customGenre
+        String customGenre,
+        @DecimalMin(value = "0.01") @Digits(integer = 10, fraction = 2)
+        @Schema(description = "Стоимость сессии по умолчанию; без всех трёх полей у платной игры сохраняется текущая", example = "1500.00")
+        BigDecimal priceAmount,
+        @Pattern(regexp = "[A-Z]{3}", message = "должно содержать трёхбуквенный код валюты ISO 4217")
+        @Schema(example = "RUB")
+        String priceCurrency,
+        SessionPaymentType paymentType
 ) {
 }

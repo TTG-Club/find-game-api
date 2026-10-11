@@ -157,7 +157,7 @@ class GameSessionServiceTest {
         when(gameRepository.findByIdForUpdate(gameId)).thenReturn(java.util.Optional.of(game));
         CreateGameSessionRequest request = new CreateGameSessionRequest(
                 "Первая глава", Instant.parse("2099-01-10T18:00:00Z"), 240,
-                new java.math.BigDecimal("15.00"), null, null);
+                new java.math.BigDecimal("15.00"), null, null, null);
 
         // Сумма без валюты игроку ничего не говорит.
         assertThatThrownBy(() -> service().create(masterId, gameId, request))
@@ -174,7 +174,7 @@ class GameSessionServiceTest {
         when(sessionRepository.save(any(GameSession.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameSessionRequest request = new CreateGameSessionRequest(
-                "Знакомство", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null);
+                "Знакомство", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null, true);
 
         // Платная игра не обязана быть платной целиком: знакомство или
         // отработку мастер вправе провести бесплатно.
@@ -182,6 +182,55 @@ class GameSessionServiceTest {
 
         assertThat(response.priceAmount()).isNull();
         assertThat(response.paymentType()).isNull();
+    }
+
+    @Test
+    void paidSessionWithoutOwnPriceTakesGameDefault() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.PAID);
+        when(game.getPriceAmount()).thenReturn(new BigDecimal("1500.00"));
+        when(game.getPriceCurrency()).thenReturn("RUB");
+        when(game.getPaymentType()).thenReturn(SessionPaymentType.POSTPAYMENT);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.save(any(GameSession.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        GameSessionResponse response = service().create(masterId, gameId, freeRequest(
+                Instant.parse("2099-01-10T18:00:00Z")));
+
+        assertThat(response.priceAmount()).isEqualByComparingTo("1500.00");
+        assertThat(response.priceCurrency()).isEqualTo("RUB");
+        assertThat(response.paymentType()).isEqualTo(SessionPaymentType.POSTPAYMENT);
+    }
+
+    @Test
+    void paidSessionNeedsPriceWhenGameHasNoDefault() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.PAID);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        // Игра заведена до цены по умолчанию: молча сделать встречу бесплатной нельзя.
+        assertThatThrownBy(() -> service().create(masterId, gameId, freeRequest(
+                Instant.parse("2099-01-10T18:00:00Z"))))
+                .isInstanceOf(InvalidGameSessionCostException.class);
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void freeSessionOfPaidGameRejectsPrice() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = game(masterId, GameCostType.PAID);
+        when(gameRepository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        CreateGameSessionRequest request = new CreateGameSessionRequest(
+                "Знакомство", Instant.parse("2099-01-10T18:00:00Z"), 240,
+                new BigDecimal("15.00"), "EUR", SessionPaymentType.PREPAYMENT, true);
+
+        assertThatThrownBy(() -> service().create(masterId, gameId, request))
+                .isInstanceOf(InvalidGameSessionCostException.class);
+        verify(sessionRepository, never()).save(any());
     }
 
     @Test
@@ -204,7 +253,7 @@ class GameSessionServiceTest {
         when(gameRepository.findByIdForUpdate(gameId)).thenReturn(java.util.Optional.of(game));
         when(sessionRepository.save(any(GameSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         CreateGameSessionRequest request = new CreateGameSessionRequest(
-                "Первая глава", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null);
+                "Первая глава", Instant.parse("2099-01-10T18:00:00Z"), 240, null, null, null, null);
 
         GameSessionResponse response = service().create(masterId, gameId, request);
 
@@ -705,7 +754,7 @@ class GameSessionServiceTest {
     ) {
         return new CreateGameSessionSeriesRequest(
                 "Глава", startsOn, until, daysOfWeek, LocalTime.of(19, 0),
-                "Europe/Moscow", 240, null, null, null);
+                "Europe/Moscow", 240, null, null, null, null);
     }
 
     private GameSessionService service() {
@@ -718,7 +767,7 @@ class GameSessionServiceTest {
     /** Заявка на сессию бесплатной игры с произвольной датой. */
     private CreateGameSessionRequest freeRequest(Instant startsAt) {
         return new CreateGameSessionRequest(
-                "Первая глава", startsAt, 240, null, null, null);
+                "Первая глава", startsAt, 240, null, null, null, null);
     }
 
     private Game game(UUID masterId, GameCostType costType) {
@@ -737,6 +786,7 @@ class GameSessionServiceTest {
                 240,
                 new BigDecimal("15.00"),
                 "EUR",
-                SessionPaymentType.PREPAYMENT);
+                SessionPaymentType.PREPAYMENT,
+                null);
     }
 }

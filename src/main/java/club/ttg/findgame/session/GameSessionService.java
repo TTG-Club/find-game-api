@@ -99,11 +99,12 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
-        validateCost(game.getCostType(), request.priceAmount(),
-                request.priceCurrency(), request.paymentType());
+        SessionCost cost = resolveCost(game, request.priceAmount(),
+                request.priceCurrency(), request.paymentType(), request.free());
 
         validateFutureStart(request.startsAt());
         GameSession session = mapper.toEntity(request);
+        cost.applyTo(session);
         session.setGameId(gameId);
         session.setStatus(GameSessionStatus.SCHEDULED);
         GameSession saved = sessionRepository.save(session);
@@ -142,8 +143,8 @@ public class GameSessionService {
             throw new GameSessionAccessDeniedException();
         }
 
-        validateCost(game.getCostType(), request.priceAmount(),
-                request.priceCurrency(), request.paymentType());
+        SessionCost cost = resolveCost(game, request.priceAmount(),
+                request.priceCurrency(), request.paymentType(), request.free());
 
         List<Instant> starts = seriesStarts(request);
 
@@ -157,9 +158,7 @@ public class GameSessionService {
             session.setStartsAt(startsAt);
             session.setEstimatedDurationMinutes(request.estimatedDurationMinutes());
             session.setStatus(GameSessionStatus.SCHEDULED);
-            session.setPriceAmount(request.priceAmount());
-            session.setPriceCurrency(request.priceCurrency());
-            session.setPaymentType(request.paymentType());
+            cost.applyTo(session);
 
             GameSession saved = sessionRepository.save(session);
 
@@ -505,32 +504,66 @@ public class GameSessionService {
         return target;
     }
 
-    /**
-     * Условия оплаты сессии.
-     *
-     * Платная игра не обязана быть платной целиком: мастер вправе провести
-     * знакомство или отработку бесплатно, поэтому у её сессии платёжные поля
-     * либо заданы все три, либо не заданы вовсе. Заполнить их наполовину
-     * нельзя — сумма без валюты игроку ничего не говорит. У бесплатной игры
-     * платных сессий не бывает.
-     */
-    private void validateCost(
-            GameCostType costType,
+    /** Платёжные поля сессии: либо заданы все три, либо сессия бесплатная. */
+    private record SessionCost(
             java.math.BigDecimal priceAmount,
             String priceCurrency,
             SessionPaymentType paymentType
     ) {
+        static final SessionCost FREE = new SessionCost(null, null, null);
+
+        void applyTo(GameSession session) {
+            session.setPriceAmount(priceAmount);
+            session.setPriceCurrency(priceCurrency);
+            session.setPaymentType(paymentType);
+        }
+    }
+
+    /**
+     * Условия оплаты сессии.
+     *
+     * Сессия платной игры без своей цены берёт стоимость игры по умолчанию:
+     * иначе мастер, забывший цену, заводил бы бесплатную встречу, а игрок не
+     * видел бы, сколько она стоит. Бесплатное знакомство или отработку мастер
+     * отмечает явно. Заполнить цену наполовину нельзя — сумма без валюты
+     * игроку ничего не говорит. У бесплатной игры платных сессий не бывает.
+     */
+    private static SessionCost resolveCost(
+            Game game,
+            java.math.BigDecimal priceAmount,
+            String priceCurrency,
+            SessionPaymentType paymentType,
+            Boolean free
+    ) {
         int filled = (priceAmount != null ? 1 : 0)
                 + (priceCurrency != null ? 1 : 0)
                 + (paymentType != null ? 1 : 0);
-        if (costType == GameCostType.FREE && filled > 0) {
-            throw new InvalidGameSessionCostException(
-                    "Для сессии бесплатной игры сумма, валюта и тип оплаты не указываются");
+        if (game.getCostType() != GameCostType.PAID) {
+            if (filled > 0) {
+                throw new InvalidGameSessionCostException(
+                        "Для сессии бесплатной игры сумма, валюта и тип оплаты не указываются");
+            }
+            return SessionCost.FREE;
         }
-        if (costType == GameCostType.PAID && filled > 0 && filled < 3) {
+        if (Boolean.TRUE.equals(free)) {
+            if (filled > 0) {
+                throw new InvalidGameSessionCostException(
+                        "У бесплатной сессии сумма, валюта и тип оплаты не указываются");
+            }
+            return SessionCost.FREE;
+        }
+        if (filled == 3) {
+            return new SessionCost(priceAmount, priceCurrency, paymentType);
+        }
+        if (filled > 0) {
             throw new InvalidGameSessionCostException(
                     "У платной сессии нужны сумма, валюта и тип оплаты вместе");
         }
+        if (game.getPriceAmount() == null) {
+            throw new InvalidGameSessionCostException(
+                    "Укажите стоимость сессии или стоимость игры по умолчанию");
+        }
+        return new SessionCost(game.getPriceAmount(), game.getPriceCurrency(), game.getPaymentType());
     }
 
     @Transactional(readOnly = true)
