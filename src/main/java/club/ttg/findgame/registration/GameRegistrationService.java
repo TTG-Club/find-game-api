@@ -4,6 +4,7 @@ import club.ttg.findgame.game.Game;
 import club.ttg.findgame.finance.GameFinanceService;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
@@ -91,6 +92,18 @@ public class GameRegistrationService {
         }
         if (registrationRepository.findByGameIdAndPlayerId(gameId, playerId).isPresent()) {
             throw new InvalidSessionRegistrationException("Игрок уже подал заявку в эту игру");
+        }
+        if (game.getStatus() != GameStatus.OPEN) {
+            throw new InvalidSessionRegistrationException("Игра закрыта: заявки в неё больше не принимаются");
+        }
+        if (game.isRecruitmentClosed()) {
+            throw new InvalidSessionRegistrationException("Мастер закрыл набор в эту игру");
+        }
+        // Место занимает и ещё не разобранная заявка: в каталоге такой стол
+        // уже полон, и подать в него в обход поиска тоже нельзя.
+        if (registrationRepository.countByGameIdAndStatusNot(gameId, RegistrationStatus.REJECTED)
+                >= game.getMaxPlayers()) {
+            throw new InvalidSessionRegistrationException("Свободных мест в игре нет");
         }
         if (game.isRequiresCompletePlayerProfile()
                 && userProfileRepository.findById(playerId)

@@ -37,7 +37,7 @@ class GameSpecificationsTest {
         Predicate notTextType = mock(Predicate.class);
         Predicate minimumAge = mock(Predicate.class);
         Predicate maximumAge = mock(Predicate.class);
-        Predicate notCancelled = mock(Predicate.class);
+        Predicate openGame = mock(Predicate.class);
         Predicate openRecruitment = mock(Predicate.class);
         Predicate freeSeat = mock(Predicate.class);
         Predicate combined = mock(Predicate.class);
@@ -46,8 +46,8 @@ class GameSpecificationsTest {
         when(criteriaBuilder.equal(any(Expression.class), eq(GameVisibility.PUBLIC))).thenReturn(publicGame);
         when(criteriaBuilder.isNull(any(Expression.class))).thenReturn(notDeleted);
         when(criteriaBuilder.isFalse(any(Expression.class))).thenReturn(openRecruitment);
-        when(criteriaBuilder.notEqual(any(Expression.class), eq(GameStatus.CANCELLED)))
-                .thenReturn(notCancelled);
+        when(criteriaBuilder.equal(any(Expression.class), eq(GameStatus.OPEN)))
+                .thenReturn(openGame);
         when(path.in(Set.of(GameType.TEXT))).thenReturn(textType);
         when(criteriaBuilder.not(textType)).thenReturn(notTextType);
         when(criteriaBuilder.greaterThanOrEqualTo(any(Expression.class), eq(18))).thenReturn(minimumAge);
@@ -70,12 +70,10 @@ class GameSpecificationsTest {
         ArgumentCaptor<Predicate[]> predicates = ArgumentCaptor.forClass(Predicate[].class);
         verify(criteriaBuilder).and(predicates.capture());
         assertThat(result).isSameAs(combined);
-        // Закрытый набор и собранный стол в поиск не попадают: заявку туда
-        // всё равно не примут.
-        // Отменённой игры, закрытого набора и собранного стола в поиске нет:
-        // заявку туда всё равно не примут.
+        // Сыгранной и отменённой игры, закрытого набора и собранного стола в
+        // поиске нет: заявку туда всё равно не примут.
         assertThat(predicates.getValue()).containsExactly(
-                publicGame, notDeleted, notCancelled, notTextType, minimumAge, maximumAge,
+                publicGame, notDeleted, openGame, notTextType, minimumAge, maximumAge,
                 openRecruitment, freeSeat);
     }
 
