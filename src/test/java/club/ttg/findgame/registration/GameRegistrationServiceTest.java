@@ -3,6 +3,7 @@ package club.ttg.findgame.registration;
 import club.ttg.findgame.game.Game;
 import club.ttg.findgame.game.GameNotFoundException;
 import club.ttg.findgame.game.GameRepository;
+import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.game.GameVisibility;
 import club.ttg.findgame.notification.NotificationService;
 import club.ttg.findgame.notification.NotificationType;
@@ -162,6 +163,62 @@ class GameRegistrationServiceTest {
         assertThatThrownBy(() -> service().register(
                 playerId, gameId, null, new CreateGameRegistrationRequest(null, null)))
                 .isInstanceOf(InvalidSessionRegistrationException.class);
+
+        verify(registrationRepository, never()).saveAndFlush(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameStatus.class, names = {"CLOSED", "CANCELLED"})
+    void finishedGameDoesNotAcceptApplications(GameStatus status) {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(game.getStatus()).thenReturn(status);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().register(
+                playerId, gameId, null, new CreateGameRegistrationRequest(null, null)))
+                .isInstanceOf(InvalidSessionRegistrationException.class)
+                .hasMessage("Игра закрыта: заявки в неё больше не принимаются");
+
+        verify(registrationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void closedRecruitmentDoesNotAcceptApplications() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(game.isRecruitmentClosed()).thenReturn(true);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service().register(
+                playerId, gameId, null, new CreateGameRegistrationRequest(null, null)))
+                .isInstanceOf(InvalidSessionRegistrationException.class)
+                .hasMessage("Мастер закрыл набор в эту игру");
+
+        verify(registrationRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void fullTableDoesNotAcceptApplications() {
+        UUID playerId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = publicGame(UUID.randomUUID(), gameId);
+        when(gameRepository.findByIdAndDeletedAtIsNull(gameId)).thenReturn(Optional.of(game));
+        when(registrationRepository.findByGameIdAndPlayerId(gameId, playerId))
+                .thenReturn(Optional.empty());
+        when(registrationRepository.countByGameIdAndStatusNot(gameId, RegistrationStatus.REJECTED))
+                .thenReturn(5L);
+
+        assertThatThrownBy(() -> service().register(
+                playerId, gameId, null, new CreateGameRegistrationRequest(null, null)))
+                .isInstanceOf(InvalidSessionRegistrationException.class)
+                .hasMessage("Свободных мест в игре нет");
 
         verify(registrationRepository, never()).saveAndFlush(any());
     }
@@ -535,6 +592,8 @@ class GameRegistrationServiceTest {
         lenient().when(game.getMasterId()).thenReturn(masterId);
         lenient().when(game.getTitle()).thenReturn("Проклятие Страда");
         lenient().when(game.getVisibility()).thenReturn(GameVisibility.PUBLIC);
+        lenient().when(game.getStatus()).thenReturn(GameStatus.OPEN);
+        lenient().when(game.getMaxPlayers()).thenReturn(5);
 
         return game;
     }
