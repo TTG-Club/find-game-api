@@ -14,6 +14,16 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
 
     boolean existsByGameId(UUID gameId);
 
+    /** Идёт ли в игре встреча или назначена ли будущая: такая игра не брошена. */
+    @Query("""
+            select count(session) > 0 from GameSession session
+            where session.gameId = :gameId
+              and (session.status = club.ttg.findgame.session.GameSessionStatus.IN_PROGRESS
+                   or (session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
+                       and session.startsAt >= :now))
+            """)
+    boolean existsOngoingOrUpcoming(@Param("gameId") UUID gameId, @Param("now") Instant now);
+
     /**
      * Сколько встреч мастер довёл до конца. Считается по его играм: сессия
      * принадлежит игре, а игра — мастеру.

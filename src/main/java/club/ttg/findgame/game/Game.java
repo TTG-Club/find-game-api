@@ -170,6 +170,20 @@ public class Game {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * Когда мастер последний раз что-то делал в игре: правил объявление,
+     * разбирал заявки, вёл встречи. По ней находятся брошенные игры.
+     */
+    @Column(name = "last_activity_at", nullable = false)
+    private Instant lastActivityAt;
+
+    /**
+     * Мастеру задан вопрос «Игра ещё актуальна?»: без ответа к этому моменту
+     * игра отменяется сама. Пусто, пока вопроса нет.
+     */
+    @Column(name = "auto_cancel_at")
+    private Instant autoCancelAt;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -191,11 +205,23 @@ public class Game {
         if (updatedAt == null) {
             updatedAt = now;
         }
+        if (lastActivityAt == null) {
+            lastActivityAt = now;
+        }
     }
 
     @PreUpdate
     void preUpdate() {
         updatedAt = Instant.now();
+    }
+
+    /**
+     * Отмечает действие мастера. Любое действие — уже ответ на вопрос об
+     * актуальности, поэтому срок автоотмены снимается.
+     */
+    public void markActive(Instant now) {
+        lastActivityAt = now;
+        autoCancelAt = null;
     }
 
     public void setAllowedSources(Set<String> allowedSources) {

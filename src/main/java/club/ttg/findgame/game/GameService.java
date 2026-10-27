@@ -65,6 +65,12 @@ public class GameService {
     private static final int FREE_MAX_ACTIVE_GAMES = 1;
     private static final int SUBSCRIBER_MAX_ACTIVE_GAMES = 10;
 
+    /**
+     * Незавершённые игры. Отменённая сюда не входит: она не состоялась и, в том
+     * числе отменённая сама за неактивностью, не должна держать место мастера.
+     */
+    private static final Set<GameStatus> UNFINISHED_STATUSES = EnumSet.of(GameStatus.DRAFT, GameStatus.OPEN);
+
     /** Окно, в котором считаются поднятия. */
     private static final Duration RAISE_WINDOW = Duration.ofDays(1);
 
@@ -196,6 +202,7 @@ public class GameService {
             game.setRequiresCompletePlayerProfile(request.requiresCompletePlayerProfile());
         }
         applyVisibilityChange(game, previousVisibility);
+        game.markActive(Instant.now());
 
         return toOwnerResponse(repository.save(game));
     }
@@ -359,6 +366,7 @@ public class GameService {
         }
 
         game.setRecruitmentClosed(true);
+        game.markActive(Instant.now());
 
         return toOwnerResponse(repository.save(game));
     }
@@ -383,6 +391,28 @@ public class GameService {
         }
 
         game.setRecruitmentClosed(false);
+        game.markActive(Instant.now());
+
+        return toOwnerResponse(repository.save(game));
+    }
+
+    /**
+     * Мастер подтверждает, что игра ещё актуальна: вопрос снимается, и отсчёт
+     * давности начинается заново.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     * @return Игра без срока автоотмены.
+     */
+    @Transactional
+    public GameResponse keepActive(UUID masterId, UUID gameId) {
+        Game game = ownGameForUpdate(masterId, gameId);
+
+        if (game.getStatus() != GameStatus.OPEN) {
+            throw new InvalidGameDetailsException("Подтвердить можно только открытую игру");
+        }
+
+        game.markActive(Instant.now());
 
         return toOwnerResponse(repository.save(game));
     }
@@ -478,6 +508,7 @@ public class GameService {
         raiseRepository.save(raise);
 
         game.setListPositionAt(now);
+        game.markActive(now);
 
         return toPublicResponse(repository.save(game));
     }
@@ -866,7 +897,7 @@ public class GameService {
         int limit = subscriptionActive ? SUBSCRIBER_MAX_ACTIVE_GAMES : FREE_MAX_ACTIVE_GAMES;
 
         creationLockService.lock(masterId);
-        if (repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED) >= limit) {
+        if (repository.countByMasterIdAndStatusInAndDeletedAtIsNull(masterId, UNFINISHED_STATUSES) >= limit) {
             throw subscriptionActive
                     ? ActiveGameLimitExceededException.forSubscriber(limit)
                     : ActiveGameLimitExceededException.forFreeMaster();

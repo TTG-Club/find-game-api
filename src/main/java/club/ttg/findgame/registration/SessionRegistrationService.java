@@ -155,6 +155,7 @@ public class SessionRegistrationService {
         Game game = gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         requireMaster(game, masterId);
+        game.markActive(Instant.now());
 
         if (game.getCostType() != GameCostType.PAID) {
             throw new InvalidSessionRegistrationException(

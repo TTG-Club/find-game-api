@@ -463,6 +463,24 @@ class GameControllerSecurityTest {
     }
 
     @Test
+    void ownerCanKeepGameActive() throws Exception {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+
+        mockMvc.perform(patch("/api/v1/games/{gameId}/keep-active", gameId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(masterId)))
+                .andExpect(status().isOk());
+
+        verify(service).keepActive(masterId, gameId);
+    }
+
+    @Test
+    void guestCannotKeepGameActive() throws Exception {
+        mockMvc.perform(patch("/api/v1/games/{gameId}/keep-active", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void raiseCooldownReturnsTooManyRequests() throws Exception {
         UUID gameId = UUID.randomUUID();
         Instant availableAt = Instant.now().plus(1, ChronoUnit.HOURS);

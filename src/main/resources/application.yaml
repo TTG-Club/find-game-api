@@ -26,6 +26,8 @@ auth-service:
   base-url: ${AUTH_SERVICE_URL:http://localhost:8081}
   connect-timeout: ${AUTH_SERVICE_CONNECT_TIMEOUT:2s}
   read-timeout: ${AUTH_SERVICE_READ_TIMEOUT:3s}
+  # Тот же секрет, что internal.service-secret у auth-service: им закрыта отправка писем.
+  service-token: ${AUTH_SERVICE_INTERNAL_SECRET:}
 
 subscriber-service:
   base-url: ${SUBSCRIBER_SERVICE_URL:http://localhost:8083}
@@ -47,6 +49,15 @@ rate-limit:
 
 internal:
   service-secret: ${INTERNAL_SERVICE_SECRET:}
+
+# Брошенные игры: после idle-period без действий мастера ему задаётся вопрос
+# «Игра ещё актуальна?», а после grace-period без ответа игра отменяется сама.
+game-inactivity:
+  enabled: ${GAME_INACTIVITY_ENABLED:true}
+  idle-period: ${GAME_INACTIVITY_IDLE_PERIOD:30d}
+  grace-period: ${GAME_INACTIVITY_GRACE_PERIOD:3d}
+  poll-delay: ${GAME_INACTIVITY_POLL_DELAY:15m}
+  batch-size: ${GAME_INACTIVITY_BATCH_SIZE:50}
 
 management:
   endpoints:
