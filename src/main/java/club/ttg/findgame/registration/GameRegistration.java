@@ -58,6 +58,13 @@ public class GameRegistration {
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 
+    /**
+     * Когда мастер впервые принял игрока. Исключение из состава отметку не
+     * снимает: по ней сыгравший у мастера сохраняет право его оценить.
+     */
+    @Column(name = "approved_at")
+    private Instant approvedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

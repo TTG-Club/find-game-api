@@ -19,7 +19,7 @@ import club.ttg.findgame.game.GameSystemNotFoundException;
 import club.ttg.findgame.game.GenreNotFoundException;
 import club.ttg.findgame.follow.FollowNotAllowedException;
 import club.ttg.findgame.review.ReviewNotAllowedException;
-import club.ttg.findgame.review.ReviewWindowClosedException;
+import club.ttg.findgame.review.ReviewLockedException;
 import club.ttg.findgame.session.GameSessionAccessDeniedException;
 import club.ttg.findgame.session.InvalidGameSessionCostException;
 import club.ttg.findgame.session.InvalidGameSessionDateException;
@@ -118,16 +118,9 @@ public class ApiExceptionHandler {
         return problem(HttpStatus.FORBIDDEN, "Оценка недоступна", exception.getMessage());
     }
 
-    @ExceptionHandler(ReviewWindowClosedException.class)
-    ProblemDetail handleReviewWindowClosed(ReviewWindowClosedException exception) {
-        ProblemDetail detail = problem(
-                HttpStatus.CONFLICT,
-                "Оценить встречу уже нельзя",
-                exception.getMessage());
-
-        detail.setProperty("closedAt", exception.getClosedAt());
-
-        return detail;
+    @ExceptionHandler(ReviewLockedException.class)
+    ProblemDetail handleReviewLocked(ReviewLockedException exception) {
+        return problem(HttpStatus.CONFLICT, "Оценку уже не изменить", exception.getMessage());
     }
 
     @ExceptionHandler(GameCannotBeRaisedException.class)

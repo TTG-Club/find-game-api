@@ -3,7 +3,7 @@ package club.ttg.findgame.profile;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
-import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.GameReviewService;
 import club.ttg.findgame.review.api.ReputationResponse;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
@@ -32,7 +32,7 @@ class MasterProfileServiceTest {
     private GameSessionRepository sessionRepository;
 
     @Mock
-    private SessionReviewService reviewService;
+    private GameReviewService reviewService;
 
     @Test
     void mastersProfileCarriesGameCounters() {
