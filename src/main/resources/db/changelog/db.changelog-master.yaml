@@ -122,4 +122,6 @@ databaseChangeLog:
   - include:
       file: db/changelog/changes/061-add-game-default-price.sql
   - include:
-      file: db/changelog/changes/062-game-inactivity.sql
+      file: db/changelog/changes/062-create-game-reviews.sql
+  - include:
+      file: db/changelog/changes/063-game-inactivity.sql

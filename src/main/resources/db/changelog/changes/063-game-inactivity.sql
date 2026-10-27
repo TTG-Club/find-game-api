@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset ttg:062-game-inactivity
+--changeset ttg:063-game-inactivity
 -- Брошенные игры: последняя активность мастера и срок, до которого он может
 -- подтвердить, что игра ещё актуальна. Без ответа игра отменяется сама.
 ALTER TABLE games

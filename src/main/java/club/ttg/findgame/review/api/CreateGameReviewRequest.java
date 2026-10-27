@@ -7,13 +7,13 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 /**
- * Оценка участника встречи.
+ * Оценка участника игры.
  *
- * @param targetId Кого оценивают: мастера или игрока этой встречи.
+ * @param targetId Кого оценивают: мастера или игрока этой игры.
  * @param recommended Сыграл бы снова.
  * @param comment Отзыв; необязателен — оценку ставят и молча.
  */
-public record CreateSessionReviewRequest(
+public record CreateGameReviewRequest(
         @NotNull UUID targetId,
         @NotNull Boolean recommended,
         @Size(max = 2000)

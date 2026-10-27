@@ -29,11 +29,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(SessionReviewController.class)
+@WebMvcTest(GameReviewController.class)
 @Import({SecurityConfiguration.class, ApiExceptionHandler.class})
 @TestPropertySource(
-        properties = "auth-service.jwt-secret=" + SessionReviewControllerSecurityTest.SECRET)
-class SessionReviewControllerSecurityTest {
+        properties = "auth-service.jwt-secret=" + GameReviewControllerSecurityTest.SECRET)
+class GameReviewControllerSecurityTest {
 
     static final String SECRET = "0123456789abcdef0123456789abcdef";
 
@@ -41,14 +41,11 @@ class SessionReviewControllerSecurityTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private SessionReviewService service;
+    private GameReviewService service;
 
     @Test
     void guestCannotRate() throws Exception {
-        mockMvc.perform(post(
-                        "/api/v1/games/{gameId}/sessions/{sessionId}/reviews",
-                        UUID.randomUUID(),
-                        UUID.randomUUID())
+        mockMvc.perform(post("/api/v1/games/{gameId}/reviews", UUID.randomUUID())
                         .contentType("application/json")
                         .content(validRequest(UUID.randomUUID())))
                 .andExpect(status().isUnauthorized());
@@ -58,29 +55,25 @@ class SessionReviewControllerSecurityTest {
     void authorComesFromJwtSubject() throws Exception {
         UUID authorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
         UUID targetId = UUID.randomUUID();
 
         // Оценку подписывает токен: чужую от своего имени не поставить.
-        mockMvc.perform(post(
-                        "/api/v1/games/{gameId}/sessions/{sessionId}/reviews", gameId, sessionId)
+        mockMvc.perform(post("/api/v1/games/{gameId}/reviews", gameId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(authorId))
                         .contentType("application/json")
                         .content(validRequest(targetId)))
                 .andExpect(status().isOk());
 
-        verify(service).review(eq(authorId), eq(gameId), eq(sessionId), any());
+        verify(service).review(eq(authorId), eq(gameId), any());
     }
 
     @Test
     void verdictIsRequired() throws Exception {
         UUID authorId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();
-        UUID sessionId = UUID.randomUUID();
 
         // Отзыв без вердикта не считается: репутацию строят «пальцы», а не текст.
-        mockMvc.perform(post(
-                        "/api/v1/games/{gameId}/sessions/{sessionId}/reviews", gameId, sessionId)
+        mockMvc.perform(post("/api/v1/games/{gameId}/reviews", gameId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(authorId))
                         .contentType("application/json")
                         .content("""
@@ -91,7 +84,30 @@ class SessionReviewControllerSecurityTest {
                                 """.formatted(UUID.randomUUID())))
                 .andExpect(status().isBadRequest());
 
-        verify(service, never()).review(any(), any(), any(), any());
+        verify(service, never()).review(any(), any(), any());
+    }
+
+    @Test
+    void guestCannotReadPendingReviews() throws Exception {
+        mockMvc.perform(get("/api/v1/reviews/pending"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void guestCannotReadReviewTargets() throws Exception {
+        mockMvc.perform(get("/api/v1/games/{gameId}/reviews", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void pendingReviewsBelongToTokenSubject() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/v1/reviews/pending")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + issueToken(userId)))
+                .andExpect(status().isOk());
+
+        verify(service).findPending(userId);
     }
 
     @Test

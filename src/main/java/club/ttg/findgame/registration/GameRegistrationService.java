@@ -326,6 +326,11 @@ public class GameRegistrationService {
         }
 
         registration.setStatus(RegistrationStatus.APPROVED);
+
+        if (registration.getApprovedAt() == null) {
+            registration.setApprovedAt(Instant.now());
+        }
+
         // Прежний отказ снят — причина к принятой заявке уже не относится.
         registration.setRejectionReason(null);
         addToScheduledSessions(game.getId(), registration.getPlayerId());

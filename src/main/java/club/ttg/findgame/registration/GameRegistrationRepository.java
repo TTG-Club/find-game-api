@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -82,5 +83,31 @@ public interface GameRegistrationRepository extends JpaRepository<GameRegistrati
             @Param("gameIds") Collection<UUID> gameIds,
             @Param("excludedStatus") RegistrationStatus excludedStatus,
             @Param("approvedStatus") RegistrationStatus approvedStatus
+    );
+
+    /**
+     * Игроки, принятые в игру раньше отметки. Принятый давно успел сыграть,
+     * даже если мастер не заводит сессии на сайте; исключённый позже право
+     * оценки не теряет — отметка принятия остаётся.
+     */
+    @Query("""
+            select registration.playerId from GameRegistration registration
+            where registration.gameId = :gameId
+              and registration.approvedAt < :approvedBefore
+            """)
+    List<UUID> findPlayerIdsApprovedBefore(
+            @Param("gameId") UUID gameId,
+            @Param("approvedBefore") Instant approvedBefore
+    );
+
+    /** Игры, куда игрока принимали раньше отметки. */
+    @Query("""
+            select registration.gameId from GameRegistration registration
+            where registration.playerId = :playerId
+              and registration.approvedAt < :approvedBefore
+            """)
+    List<UUID> findGameIdsApprovedBefore(
+            @Param("playerId") UUID playerId,
+            @Param("approvedBefore") Instant approvedBefore
     );
 }

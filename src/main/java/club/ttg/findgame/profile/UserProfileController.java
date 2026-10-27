@@ -2,9 +2,9 @@ package club.ttg.findgame.profile;
 
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
 import club.ttg.findgame.profile.api.PlayerPublicProfileResponse;
-import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.GameReviewService;
+import club.ttg.findgame.review.api.GameReviewResponse;
 import club.ttg.findgame.review.api.ReputationResponse;
-import club.ttg.findgame.review.api.SessionReviewResponse;
 import club.ttg.findgame.profile.api.UpdateUserProfileRequest;
 import club.ttg.findgame.profile.api.UserProfileResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,13 +33,13 @@ public class UserProfileController {
     private final UserProfileService service;
     private final MasterProfileService masterService;
     private final PlayerProfileService playerService;
-    private final SessionReviewService reviewService;
+    private final GameReviewService reviewService;
 
     public UserProfileController(
             UserProfileService service,
             MasterProfileService masterService,
             PlayerProfileService playerService,
-            SessionReviewService reviewService
+            GameReviewService reviewService
     ) {
         this.service = service;
         this.masterService = masterService;
@@ -63,7 +63,7 @@ public class UserProfileController {
 
     @GetMapping("/masters/{userId}/reviews")
     @Operation(summary = "Получить отзывы игроков о мастере")
-    public List<SessionReviewResponse> getMasterReviews(@PathVariable UUID userId) {
+    public List<GameReviewResponse> getMasterReviews(@PathVariable UUID userId) {
         return reviewService.findMasterReviews(userId);
     }
 
