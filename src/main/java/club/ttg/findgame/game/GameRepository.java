@@ -168,4 +168,18 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select game from Game game where game.id = :id")
     Optional<Game> findByIdIncludingDeletedForUpdate(@Param("id") UUID id);
+
+    /**
+     * Игры, в которых ещё уместно напоминать об оценке: идущие и завершённые
+     * недавно. Через месяц после конца напоминание о старой игре — шум.
+     */
+    @Query("""
+            select game from Game game
+            where game.deletedAt is null
+              and (game.status = club.ttg.findgame.game.GameStatus.OPEN
+                   or (game.status in (club.ttg.findgame.game.GameStatus.CLOSED,
+                                       club.ttg.findgame.game.GameStatus.CANCELLED)
+                       and game.updatedAt > :finishedAfter))
+            """)
+    List<Game> findReviewable(@Param("finishedAfter") Instant finishedAfter);
 }

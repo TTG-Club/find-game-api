@@ -46,5 +46,8 @@ public enum NotificationType {
     MASTER_PUBLISHED_GAME,
 
     /** Мастер зовёт отмеченного игрока в свою игру. */
-    GAME_INVITE
+    GAME_INVITE,
+
+    /** Пора оценить тех, с кем играл: мастера или игроков игры. */
+    REVIEW_REQUESTED
 }

@@ -1,8 +1,10 @@
 package club.ttg.findgame.review;
 
-import club.ttg.findgame.review.api.CreateSessionReviewRequest;
+import club.ttg.findgame.review.api.CreateGameReviewRequest;
+import club.ttg.findgame.review.api.GameReviewResponse;
+import club.ttg.findgame.review.api.PendingReviewResponse;
 import club.ttg.findgame.review.api.ReputationResponse;
-import club.ttg.findgame.review.api.SessionReviewResponse;
+import club.ttg.findgame.review.api.ReviewTargetResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -20,41 +22,47 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-/** Взаимные оценки за встречу и репутация участников. */
+/** Взаимные оценки за игру и репутация участников. */
 @RestController
-@RequestMapping("/api/v1/games/{gameId}")
+@RequestMapping("/api/v1")
 @Tag(name = "Review")
 @SecurityRequirement(name = "bearerAuth")
-public class SessionReviewController {
+public class GameReviewController {
 
-    private final SessionReviewService service;
+    private final GameReviewService service;
 
-    public SessionReviewController(SessionReviewService service) {
+    public GameReviewController(GameReviewService service) {
         this.service = service;
     }
 
-    @PostMapping("/sessions/{sessionId}/reviews")
-    @Operation(summary = "Оценить участника завершённой встречи")
-    public SessionReviewResponse review(
+    @PostMapping("/games/{gameId}/reviews")
+    @Operation(summary = "Оценить мастера или игрока, с которым играл")
+    public GameReviewResponse review(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
-            @PathVariable UUID sessionId,
-            @Valid @RequestBody CreateSessionReviewRequest request
+            @Valid @RequestBody CreateGameReviewRequest request
     ) {
-        return service.review(userId(jwt), gameId, sessionId, request);
+        return service.review(userId(jwt), gameId, request);
     }
 
-    @GetMapping("/sessions/{sessionId}/reviews")
-    @Operation(summary = "Получить оценки встречи, видимые смотрящему")
-    public List<SessionReviewResponse> findSessionReviews(
+    @GetMapping("/games/{gameId}/reviews")
+    @Operation(summary = "Получить, кого смотрящий вправе оценить в игре, со своими оценками")
+    public List<ReviewTargetResponse> findTargets(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
-            @PathVariable UUID gameId,
-            @PathVariable UUID sessionId
+            @PathVariable UUID gameId
     ) {
-        return service.findSessionReviews(userId(jwt), gameId, sessionId);
+        return service.findTargets(userId(jwt), gameId);
     }
 
-    @GetMapping("/players/{playerId}/reputation")
+    @GetMapping("/reviews/pending")
+    @Operation(summary = "Получить игры, где смотрящий ещё не оценил тех, с кем играл")
+    public List<PendingReviewResponse> findPending(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt
+    ) {
+        return service.findPending(userId(jwt));
+    }
+
+    @GetMapping("/games/{gameId}/players/{playerId}/reputation")
     @Operation(summary = "Репутация игрока для мастера, разбирающего заявку")
     public ReputationResponse getPlayerReputation(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
@@ -64,9 +72,9 @@ public class SessionReviewController {
         return service.getPlayerReputation(userId(jwt), gameId, playerId);
     }
 
-    @GetMapping("/players/{playerId}/reviews")
+    @GetMapping("/games/{gameId}/players/{playerId}/reviews")
     @Operation(summary = "Отзывы об игроке для мастера, разбирающего заявку")
-    public List<SessionReviewResponse> findPlayerReviews(
+    public List<GameReviewResponse> findPlayerReviews(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID gameId,
             @PathVariable UUID playerId

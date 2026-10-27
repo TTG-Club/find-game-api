@@ -2,7 +2,7 @@ package club.ttg.findgame.profile;
 
 import club.ttg.findgame.common.ApiExceptionHandler;
 import club.ttg.findgame.config.SecurityConfiguration;
-import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.GameReviewService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
@@ -49,7 +49,7 @@ class UserProfileControllerSecurityTest {
     private PlayerProfileService playerService;
 
     @MockitoBean
-    private SessionReviewService reviewService;
+    private GameReviewService reviewService;
 
     @Test
     void guestReadsMasterProfile() throws Exception {

@@ -3,7 +3,7 @@ package club.ttg.findgame.profile;
 import club.ttg.findgame.game.GameRepository;
 import club.ttg.findgame.game.GameStatus;
 import club.ttg.findgame.profile.api.MasterPublicProfileResponse;
-import club.ttg.findgame.review.SessionReviewService;
+import club.ttg.findgame.review.GameReviewService;
 import club.ttg.findgame.review.api.ReputationResponse;
 import club.ttg.findgame.session.GameSessionRepository;
 import club.ttg.findgame.session.GameSessionStatus;
@@ -25,13 +25,13 @@ public class MasterProfileService {
     private final UserProfileRepository profileRepository;
     private final GameRepository gameRepository;
     private final GameSessionRepository sessionRepository;
-    private final SessionReviewService reviewService;
+    private final GameReviewService reviewService;
 
     public MasterProfileService(
             UserProfileRepository profileRepository,
             GameRepository gameRepository,
             GameSessionRepository sessionRepository,
-            SessionReviewService reviewService
+            GameReviewService reviewService
     ) {
         this.profileRepository = profileRepository;
         this.gameRepository = gameRepository;

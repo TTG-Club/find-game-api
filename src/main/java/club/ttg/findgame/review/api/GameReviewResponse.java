@@ -9,8 +9,7 @@ import java.util.UUID;
  * Отзыв в том виде, в каком его показывают.
  *
  * @param id Идентификатор отзыва.
- * @param sessionId Встреча, за которую он поставлен.
- * @param gameId Игра встречи.
+ * @param gameId Игра, за которую он поставлен.
  * @param authorId Кто оценил.
  * @param targetId Кого оценили.
  * @param kind Направление: об игроке или о мастере.
@@ -18,9 +17,8 @@ import java.util.UUID;
  * @param comment Текст отзыва; пусто — оценку поставили молча.
  * @param createdAt Когда оценили.
  */
-public record SessionReviewResponse(
+public record GameReviewResponse(
         UUID id,
-        UUID sessionId,
         UUID gameId,
         UUID authorId,
         UUID targetId,
