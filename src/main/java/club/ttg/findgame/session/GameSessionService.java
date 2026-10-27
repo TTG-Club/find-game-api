@@ -99,6 +99,8 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
+        // Любое действие мастера с расписанием — знак, что игра жива.
+        game.markActive(Instant.now());
         SessionCost cost = resolveCost(game, request.priceAmount(),
                 request.priceCurrency(), request.paymentType(), request.free());
 
@@ -142,6 +144,8 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
+        // Любое действие мастера с расписанием — знак, что игра жива.
+        game.markActive(Instant.now());
 
         SessionCost cost = resolveCost(game, request.priceAmount(),
                 request.priceCurrency(), request.paymentType(), request.free());
@@ -241,6 +245,8 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
+        // Любое действие мастера с расписанием — знак, что игра жива.
+        game.markActive(Instant.now());
         validateFutureStart(request.startsAt());
         GameSession source = sessionRepository.findByIdAndGameId(sourceSessionId, gameId)
                 .orElseThrow(() -> new GameSessionNotFoundException(sourceSessionId));
@@ -454,6 +460,8 @@ public class GameSessionService {
         if (!game.getMasterId().equals(masterId)) {
             throw new GameSessionAccessDeniedException();
         }
+        // Любое действие мастера с расписанием — знак, что игра жива.
+        game.markActive(Instant.now());
 
         GameSession session = sessionRepository.findByIdAndGameId(sessionId, gameId)
                 .orElseThrow(() -> new GameSessionNotFoundException(sessionId));

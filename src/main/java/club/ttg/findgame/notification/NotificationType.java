@@ -39,6 +39,15 @@ public enum NotificationType {
     /** Игра отменена: она не состоялась. */
     GAME_CANCELLED,
 
+    /**
+     * Мастер давно ничего не делал в игре: актуальна ли она ещё? Без ответа
+     * игра отменится сама; срок приходит в message.
+     */
+    GAME_INACTIVITY_WARNING,
+
+    /** Мастер не ответил на вопрос об актуальности, и игра отменилась сама. */
+    GAME_CANCELLED_FOR_INACTIVITY,
+
     /** Игра скрыта модератором; пояснение приходит в message. */
     GAME_HIDDEN_BY_MODERATOR,
 

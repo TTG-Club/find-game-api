@@ -96,12 +96,18 @@ public record GameResponse(
          */
         BigDecimal priceAmount,
         String priceCurrency,
-        SessionPaymentType paymentType
+        SessionPaymentType paymentType,
+        /**
+         * Мастер давно ничего не делал в игре, и ему задан вопрос, актуальна
+         * ли она. Без ответа к этому моменту игра отменится сама. Приходит
+         * только владельцу.
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL) Instant autoCancelAt
 ) {
 
     /**
-     * Тот же ответ без кода приглашения: он принадлежит только владельцу игры,
-     * а публичная выдача отдаёт игру всем.
+     * Тот же ответ без кода приглашения и срока автоотмены: они принадлежат
+     * только владельцу игры, а публичная выдача отдаёт игру всем.
      */
     public GameResponse copyWithoutInviteCode() {
         return new GameResponse(
@@ -112,7 +118,7 @@ public record GameResponse(
                 status, recruitmentClosed, durationType,
                 costType, visibility, null, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
-                priceAmount, priceCurrency, paymentType);
+                priceAmount, priceCurrency, paymentType, null);
     }
 
     /**
@@ -128,7 +134,7 @@ public record GameResponse(
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 nextSession, myRegistrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
-                priceAmount, priceCurrency, paymentType);
+                priceAmount, priceCurrency, paymentType, autoCancelAt);
     }
 
     /** Дополняет карточку сведениями, загруженными одним запросом на всю страницу. */
@@ -141,6 +147,6 @@ public record GameResponse(
                 status, recruitmentClosed, durationType,
                 costType, visibility, inviteCode, createdAt, listPositionAt, updatedAt, deletedAt, deletionReason,
                 session, registrationStatus, onlinePlatform, customSystem, customGenre, hasVirtualTable,
-                priceAmount, priceCurrency, paymentType);
+                priceAmount, priceCurrency, paymentType, autoCancelAt);
     }
 }

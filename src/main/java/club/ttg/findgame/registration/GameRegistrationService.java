@@ -190,6 +190,7 @@ public class GameRegistrationService {
         Game game = gameRepository.findByIdForUpdate(gameId)
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         requireMaster(game, masterId);
+        game.markActive(Instant.now());
 
         GameRegistration registration = registrationRepository
                 .findByIdAndGameId(registrationId, gameId)

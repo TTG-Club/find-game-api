@@ -1,6 +1,7 @@
 package club.ttg.findgame.game;
 
 import club.ttg.findgame.game.api.GameStatisticsResponse;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -85,7 +86,39 @@ public interface GameRepository extends JpaRepository<Game, UUID>, JpaSpecificat
             @Param("now") Instant now,
             Pageable pageable);
 
-    long countByMasterIdAndStatusNotAndDeletedAtIsNull(UUID masterId, GameStatus status);
+    /**
+     * Открытые игры, в которых мастер давно ничего не делал и которого ещё не
+     * спрашивали об актуальности. Игра с идущей или назначенной встречей
+     * не брошена, сколько бы ни молчал мастер.
+     */
+    @Query("""
+            select game.id from Game game
+            where game.status = club.ttg.findgame.game.GameStatus.OPEN
+              and game.deletedAt is null
+              and game.autoCancelAt is null
+              and game.lastActivityAt < :threshold
+              and not exists (select 1 from GameSession session where session.gameId = game.id
+                  and (session.status = club.ttg.findgame.session.GameSessionStatus.IN_PROGRESS
+                       or (session.status = club.ttg.findgame.session.GameSessionStatus.SCHEDULED
+                           and session.startsAt >= :now)))
+            order by game.lastActivityAt asc, game.id asc
+            """)
+    List<UUID> findInactiveIds(
+            @Param("threshold") Instant threshold,
+            @Param("now") Instant now,
+            Limit limit);
+
+    /** Открытые игры, срок ответа по которым вышел. */
+    @Query("""
+            select game.id from Game game
+            where game.status = club.ttg.findgame.game.GameStatus.OPEN
+              and game.deletedAt is null
+              and game.autoCancelAt <= :now
+            order by game.autoCancelAt asc, game.id asc
+            """)
+    List<UUID> findDueForAutoCancelIds(@Param("now") Instant now, Limit limit);
+
+    long countByMasterIdAndStatusInAndDeletedAtIsNull(UUID masterId, Collection<GameStatus> statuses);
 
     Page<Game> findAllByMasterIdAndDeletedAtIsNull(UUID masterId, Pageable pageable);
 

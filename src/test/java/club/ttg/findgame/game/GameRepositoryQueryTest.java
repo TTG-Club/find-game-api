@@ -3,6 +3,7 @@ package club.ttg.findgame.game;
 import club.ttg.findgame.favorite.FavoriteGame;
 import club.ttg.findgame.registration.GameRegistration;
 import club.ttg.findgame.session.GameSession;
+import club.ttg.findgame.session.GameSessionRepository;
 import org.hibernate.cfg.Configuration;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
@@ -29,6 +30,7 @@ class GameRepositoryQueryTest {
             GameRepository repository = new JpaRepositoryFactory(session)
                     .getRepository(GameRepository.class);
             assertThat(repository).isNotNull();
+            assertThat(new JpaRepositoryFactory(session).getRepository(GameSessionRepository.class)).isNotNull();
         }
     }
 }

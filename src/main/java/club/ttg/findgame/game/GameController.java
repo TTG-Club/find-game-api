@@ -206,6 +206,16 @@ public class GameController {
         service.cancel(UUID.fromString(jwt.getSubject()), gameId);
     }
 
+    @PatchMapping("/{gameId}/keep-active")
+    @Operation(summary = "Подтвердить, что своя игра ещё актуальна")
+    @SecurityRequirement(name = "bearerAuth")
+    public GameResponse keepActive(
+            @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID gameId
+    ) {
+        return service.keepActive(UUID.fromString(jwt.getSubject()), gameId);
+    }
+
     @PatchMapping("/{gameId}/raise")
     @Operation(summary = "Поднять свою игру в публичном списке")
     @SecurityRequirement(name = "bearerAuth")

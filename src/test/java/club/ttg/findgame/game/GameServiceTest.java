@@ -30,6 +30,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Optional;
@@ -88,6 +89,33 @@ class GameServiceTest {
     private static final String ACCESS_TOKEN = "access-token";
 
     private final GameMapper mapper = Mappers.getMapper(GameMapper.class);
+
+    @Test
+    void keepActiveClearsAutoCancel() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        game.setLastActivityAt(Instant.now().minus(31, java.time.temporal.ChronoUnit.DAYS));
+        game.setAutoCancelAt(Instant.now().plus(2, java.time.temporal.ChronoUnit.DAYS));
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(repository.save(game)).thenReturn(game);
+
+        GameResponse response = service().keepActive(masterId, gameId);
+
+        assertThat(response.autoCancelAt()).isNull();
+        assertThat(game.getAutoCancelAt()).isNull();
+        assertThat(game.getLastActivityAt()).isAfter(Instant.now().minusSeconds(5));
+    }
+
+    @Test
+    void keepActiveRejectsForeignGame() {
+        UUID gameId = UUID.randomUUID();
+        when(repository.findByIdForUpdate(gameId))
+                .thenReturn(Optional.of(editableGame(gameId, UUID.randomUUID())));
+
+        assertThatThrownBy(() -> service().keepActive(UUID.randomUUID(), gameId))
+                .isInstanceOf(GameAccessDeniedException.class);
+    }
 
     @Test
     void newGameStartsAtItsCreationPosition() {
@@ -312,7 +340,8 @@ class GameServiceTest {
     void freeMasterCannotKeepSecondUnfinishedGame() {
         GameService service = service();
         UUID masterId = UUID.randomUUID();
-        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+        when(repository.countByMasterIdAndStatusInAndDeletedAtIsNull(
+                masterId, EnumSet.of(GameStatus.DRAFT, GameStatus.OPEN)))
                 .thenReturn(1L);
 
         assertThatThrownBy(() -> service.create(
@@ -328,7 +357,8 @@ class GameServiceTest {
         UUID masterId = UUID.randomUUID();
         when(subscriptionStatusClient.status("game-master")).thenReturn(
                 Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
-        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+        when(repository.countByMasterIdAndStatusInAndDeletedAtIsNull(
+                masterId, EnumSet.of(GameStatus.DRAFT, GameStatus.OPEN)))
                 .thenReturn(9L);
         when(repository.save(any(Game.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -344,7 +374,8 @@ class GameServiceTest {
         UUID masterId = UUID.randomUUID();
         when(subscriptionStatusClient.status("game-master")).thenReturn(
                 Optional.of(new SubscriptionStatusClient.SubscriptionStatus(true, true, null, null, "PREMIUM")));
-        when(repository.countByMasterIdAndStatusNotAndDeletedAtIsNull(masterId, GameStatus.CLOSED))
+        when(repository.countByMasterIdAndStatusInAndDeletedAtIsNull(
+                masterId, EnumSet.of(GameStatus.DRAFT, GameStatus.OPEN)))
                 .thenReturn(10L);
 
         assertThatThrownBy(() -> service.create(
