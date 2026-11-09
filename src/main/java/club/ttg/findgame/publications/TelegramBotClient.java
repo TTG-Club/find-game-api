@@ -17,22 +17,37 @@ import static club.ttg.findgame.publications.PublicationModels.*;
 /** Отправляет через существующего бота, не раскрывая токен и ID чата в ошибках. */
 @Component
 public class TelegramBotClient {
+    static final String DEFAULT_API_URL = "https://api.telegram.org";
+
     private final ObjectMapper mapper;
     private final String token;
     private final HttpClient client;
+    private final String apiUrl;
 
-    /** Использует то же имя серверной переменной, что и бэкенд сайта. */
+    /**
+     * Использует те же имена серверных переменных, что и бэкенд сайта. Адрес API
+     * настраивается: с сервера в России api.telegram.org недоступен, и запросы
+     * идут через пересылающий прокси.
+     */
     @Autowired
-    public TelegramBotClient(ObjectMapper mapper, @Value("${telegram.bot-token:}") String token) {
+    public TelegramBotClient(ObjectMapper mapper, @Value("${telegram.bot-token:}") String token,
+                             @Value("${telegram.api-url:" + DEFAULT_API_URL + "}") String apiUrl) {
         this(mapper, token, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-                .followRedirects(HttpClient.Redirect.NEVER).build());
+                .followRedirects(HttpClient.Redirect.NEVER).build(), apiUrl);
     }
 
     /** Позволяет проверить настоящий HTTP-запрос без обращения к Telegram. */
     TelegramBotClient(ObjectMapper mapper, String token, HttpClient client) {
+        this(mapper, token, client, DEFAULT_API_URL);
+    }
+
+    /** Позволяет проверить настоящий HTTP-запрос к другому адресу API. */
+    TelegramBotClient(ObjectMapper mapper, String token, HttpClient client, String apiUrl) {
         this.mapper = mapper;
         this.token = token.trim();
         this.client = client;
+        String url = apiUrl == null || apiUrl.isBlank() ? DEFAULT_API_URL : apiUrl.trim();
+        this.apiUrl = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
     }
 
     /** Отсутствующая настройка отключает только отправку Telegram. */
@@ -44,7 +59,7 @@ public class TelegramBotClient {
     Outcome send(String chatId, Map<String, Object> payload, ImageFile image) {
         if (!configured()) return new Outcome("FAILED", "Бот Telegram не настроен на сервере", null, null);
         try {
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("https://api.telegram.org/bot" + token
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(apiUrl + "/bot" + token
                     + (image == null ? "/sendMessage" : "/sendPhoto"))).timeout(Duration.ofSeconds(15));
             if (image == null) {
                 Map<String, Object> body = new HashMap<>(payload);

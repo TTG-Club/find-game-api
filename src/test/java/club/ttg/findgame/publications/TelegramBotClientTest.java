@@ -43,6 +43,20 @@ class TelegramBotClientTest {
         verify(http).shutdown();
     }
 
+    /** Настроенный адрес API (прокси) заменяет api.telegram.org, лишний слэш в конце не мешает. */
+    @Test void sendsThroughConfiguredApiUrl() throws Exception {
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> response = mock();
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn("{\"ok\":true,\"result\":{\"message_id\":7}}");
+        when(http.send(any(HttpRequest.class), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any())).thenReturn(response);
+        TelegramBotClient client = new TelegramBotClient(mapper, TOKEN, http, "https://proxy.example.dev/");
+        assertThat(client.send("-1001234567890", Map.of("text", "Проверка"), null).status()).isEqualTo("SENT");
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http).send(request.capture(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<String>>any());
+        assertThat(request.getValue().uri().toString()).isEqualTo("https://proxy.example.dev/bot" + TOKEN + "/sendMessage");
+    }
+
     /** Сетевой сбой не повторяет запрос и не выдаёт токен или ID. */
     @Test void unknownDeliveryIsNotRetriedAndSecretsStayPrivate() throws Exception {
         HttpClient http = mock(HttpClient.class);

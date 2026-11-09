@@ -107,6 +107,8 @@ discord-publications:
 # Тот же бот, что в core-api; ID каналов задаются через админку и шифруются в базе.
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}
+  # Адрес Bot API: с сервера в России api.telegram.org недоступен — указывается прокси.
+  api-url: ${TELEGRAM_API_URL:https://api.telegram.org}
 
 # Те же ключ и сообщество, что в core-api; ID из админки заменяет VK_GROUP_ID и шифруется в базе.
 vk:
