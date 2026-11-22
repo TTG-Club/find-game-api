@@ -777,6 +777,50 @@ class GameServiceTest {
     }
 
     @Test
+    void gameWithOpenSessionsCannotBeClosed() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.existsByGameIdAndStatusIn(eq(gameId), any()))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service().close(masterId, gameId))
+                .isInstanceOf(GameHasOpenSessionsException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void gameWithoutOpenSessionsIsClosed() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+        when(sessionRepository.existsByGameIdAndStatusIn(eq(gameId), any()))
+                .thenReturn(false);
+
+        service().close(masterId, gameId);
+
+        assertThat(game.getStatus()).isEqualTo(GameStatus.CLOSED);
+        verify(sessionRepository).existsByGameIdAndStatusIn(gameId,
+                java.util.EnumSet.of(GameSessionStatus.SCHEDULED, GameSessionStatus.IN_PROGRESS));
+    }
+
+    @Test
+    void gameWithOpenSessionsCanBeCancelled() {
+        UUID masterId = UUID.randomUUID();
+        UUID gameId = UUID.randomUUID();
+        Game game = editableGame(gameId, masterId);
+        when(repository.findByIdForUpdate(gameId)).thenReturn(Optional.of(game));
+
+        service().cancel(masterId, gameId);
+
+        assertThat(game.getStatus()).isEqualTo(GameStatus.CANCELLED);
+        verify(sessionRepository, never()).existsByGameIdAndStatusIn(any(), any());
+    }
+
+    @Test
     void masterClosesRecruitmentWithFirstApprovedPlayer() {
         UUID masterId = UUID.randomUUID();
         UUID gameId = UUID.randomUUID();

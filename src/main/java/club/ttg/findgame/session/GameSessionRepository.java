@@ -24,6 +24,9 @@ public interface GameSessionRepository extends JpaRepository<GameSession, UUID> 
             """)
     boolean existsOngoingOrUpcoming(@Param("gameId") UUID gameId, @Param("now") Instant now);
 
+    /** Есть ли у игры сессии в одном из перечисленных состояний. */
+    boolean existsByGameIdAndStatusIn(UUID gameId, Collection<GameSessionStatus> statuses);
+
     /**
      * Сколько встреч мастер довёл до конца. Считается по его играм: сессия
      * принадлежит игре, а игра — мастеру.

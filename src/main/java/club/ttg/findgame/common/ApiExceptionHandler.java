@@ -13,6 +13,7 @@ import club.ttg.findgame.game.ActiveGameLimitExceededException;
 import club.ttg.findgame.game.InvalidGameDetailsException;
 import club.ttg.findgame.game.InvalidPlayerCountException;
 import club.ttg.findgame.game.GameCannotBeRaisedException;
+import club.ttg.findgame.game.GameHasOpenSessionsException;
 import club.ttg.findgame.game.GameRaiseCooldownException;
 import club.ttg.findgame.game.GameSystemAlreadyExistsException;
 import club.ttg.findgame.game.GameSystemNotFoundException;
@@ -121,6 +122,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ReviewLockedException.class)
     ProblemDetail handleReviewLocked(ReviewLockedException exception) {
         return problem(HttpStatus.CONFLICT, "Оценку уже не изменить", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameHasOpenSessionsException.class)
+    ProblemDetail handleGameHasOpenSessions(GameHasOpenSessionsException exception) {
+        return problem(HttpStatus.CONFLICT, "Игру нельзя закрыть", exception.getMessage());
     }
 
     @ExceptionHandler(GameCannotBeRaisedException.class)
