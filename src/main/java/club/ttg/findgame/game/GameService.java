@@ -74,6 +74,10 @@ public class GameService {
     /** Окно, в котором считаются поднятия. */
     private static final Duration RAISE_WINDOW = Duration.ofDays(1);
 
+    /** Сессии, которые ещё не завершены и не отменены: с ними игру можно только отменить. */
+    private static final Set<GameSessionStatus> OPEN_SESSION_STATUSES =
+            EnumSet.of(GameSessionStatus.SCHEDULED, GameSessionStatus.IN_PROGRESS);
+
     private final GameRepository repository;
     private final GameSystemRepository gameSystemRepository;
     private final GenreService genreService;
@@ -429,6 +433,13 @@ public class GameService {
         return game;
     }
 
+    /**
+     * Закрывает сыгранную игру. Пока у неё есть открытые сессии (назначенные
+     * или идущие), закрыть её нельзя — такую игру можно только отменить.
+     *
+     * @param masterId Владелец игры из токена.
+     * @param gameId Игра.
+     */
     @Transactional
     public void close(UUID masterId, UUID gameId) {
         finish(masterId, gameId, GameStatus.CLOSED);
@@ -453,6 +464,10 @@ public class GameService {
                 .orElseThrow(() -> new GameNotFoundException(gameId));
         if (!game.getMasterId().equals(masterId)) {
             throw new GameAccessDeniedException();
+        }
+        if (status == GameStatus.CLOSED && sessionRepository.existsByGameIdAndStatusIn(
+                gameId, OPEN_SESSION_STATUSES)) {
+            throw new GameHasOpenSessionsException();
         }
         game.setStatus(status);
         repository.save(game);
